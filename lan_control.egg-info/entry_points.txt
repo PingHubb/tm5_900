@@ -1,0 +1,2 @@
+[console_scripts]
+lan_node = lan_control.lan_node:main
