@@ -25,9 +25,10 @@ setup(
             'testing = lan_control.testing:main',
             'algorithm_demo = lan_control.algorithm_demo:main',
             'pygame_signal = lan_control.pygame_signal:main',
-            'keyboard_control  = lan_control.keyboard_control:main',
-            'sensor_control  = lan_control.sensor_control:main',
-            'del  = lan_control.del:main',
+            'keyboard_control = lan_control.keyboard_control:main',
+            'sensor_control = lan_control.sensor_control:main',
+            'sensor_control_simulation = lan_control.sensor_control_simulation:main',
+            'del = lan_control.del:main',
 
         ],
     },
