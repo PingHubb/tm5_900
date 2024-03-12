@@ -144,7 +144,7 @@ class MyGame(arcade.Window):
             arcade.draw_line(x + 20, y, x + 10, y + 10, arcade.color.RED, 4)
 
     def test_button_function(self):
-        # Calculate IQR for outlier detection
+        # Calculate IQR for outlier detection :)
         q1, q3 = np.percentile(self.cell_value_history[-100:], [25, 75])
         iqr = q3 - q1
         lower_bound = q1 - 1.5 * iqr
