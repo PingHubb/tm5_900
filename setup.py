@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'ui_sensor_ros2 = lan_control.ui_sensor_ros2:main',
             'ui_sensor_demo = lan_control.ui_sensor_demo:main',
+            'ui_sensor_test = lan_control.ui_sensor_test:main',
             'testing = lan_control.testing:main',
             'algorithm_demo = lan_control.algorithm_demo:main',
             'pygame_signal = lan_control.pygame_signal:main',

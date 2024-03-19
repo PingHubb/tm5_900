@@ -26,9 +26,10 @@ HOVER_COLOR = (255, 235, 59)  # Color when hovered
 first_set_of_data = 500
 
 """ For Demo """
-useless_row = 11  # Count from bottom to top, start from 0   11
-useless_col = -1  # Count from left to right, start from 0   -1
+useless_row = 11  # Count from bottom to top, start from 0
+useless_col = -1  # Count from left to right, start from 0
 remove_last_how_many_value = -10  # Remove the last 10 values from the heatmap data
+
 
 class SensorDataPublisher(Node):
     def __init__(self):
@@ -39,7 +40,7 @@ class SensorDataPublisher(Node):
         msg = Float32MultiArray()
         msg.data = data
         self.publisher.publish(msg)
-        # self.get_logger().info(f'Publishing: {data}, {len(data)}')
+        self.get_logger().info(f'Publishing: {data}, {len(data)}')
 
 
 class NeonButton:
@@ -122,17 +123,12 @@ class MyGame(arcade.Window):
         self.threshold_triggered = False  # To track if the threshold condition is met
         self.current_threshold_max = None
         self.current_threshold_min = None
+
         self.moving_average_window = 10  # Window size for moving average
-
-        self.processed_data = {}  # Stores processed data for all cells
-        self.process_all = False
-
-
 
     def start_sequence(self):
         self.sequence_active = True
         self.sequence_step = 0
-        self.process_all = True  # Process data for all cells when "Start" is pressed
 
     def draw_arrow(self, x, y, direction):
         """ Draw a simple arrow pointing to the given coordinates. """
@@ -193,10 +189,10 @@ class MyGame(arcade.Window):
         global useless_row, useless_col
 
         # Min and Max values for the heatmap
-        min_value = 0
+        min_value = 1
         max_value = 2000
 
-        self.matrix_height = self.channel_check[0] - 1  # Height of the matrix
+        self.matrix_height = self.channel_check[0]  # Height of the matrix
         self.matrix_width = self.channel_check[1]  # Width of the matrix
         square_size = 60  # Size of each square in the heatmap
         start_x = SCREEN_WIDTH * 1.4 / 2 - (square_size * self.matrix_width) / 2
@@ -219,12 +215,12 @@ class MyGame(arcade.Window):
                     color = arcade.color.BLUE  # Change color to blue for the selected cell
                 elif min_value <= value <= max_value:
                     red_intensity = int(255 * (value - min_value) / (max_value - min_value))
-                    color = (255, 255 - red_intensity, 255 - red_intensity)  # From white to red
+                    color = (red_intensity, 0, 0, 255)
                 else:
                     color = arcade.color.LIGHT_GRAY
 
                 arcade.draw_rectangle_filled(x, y, square_size, square_size, color)
-                text_color = arcade.color.BLACK if value <= 1250 else arcade.color.WHITE  # Improved visibility
+                text_color = arcade.color.WHITE if value <= 500 else arcade.color.BLACK
                 arcade.draw_text(str(value), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
                                  anchor_y="center")
 
@@ -257,6 +253,69 @@ class MyGame(arcade.Window):
         for i, (title, action) in enumerate(button_commands):
             self.button_list.append(NeonButton(BUTTON_X_POSITIONS, BUTTON_Y_POSITIONS[i], BUTTON_WIDTH, BUTTON_HEIGHT, title, action))
 
+    def draw_realtime_curve(self):
+        if not self.selected_cell or not self.cell_value_history or not self.show_graph:
+            return
+
+        # Configuration for graph dimensions
+        graph_left = SCREEN_WIDTH * 0.4
+        graph_top = SCREEN_HEIGHT * 0.9
+        graph_width = SCREEN_WIDTH * 0.55
+        graph_height = SCREEN_HEIGHT * 0.8
+
+
+        # Draw background for the graph
+        arcade.draw_rectangle_filled(graph_left + graph_width / 2, graph_top - graph_height / 2, graph_width,
+                                     graph_height, self.graph_background_color)
+
+        # Define y-axis range based on the center value
+        if self.y_axis_center_value is not None:
+            y_min = self.y_axis_center_value - 100
+            y_max = self.y_axis_center_value + 100
+        else:
+            y_min = min(self.cell_value_history, default=0) - 100
+            y_max = max(self.cell_value_history, default=0) + 100
+
+        x_scale = graph_width / len(self.cell_value_history)
+        y_scale = graph_height / (y_max - y_min)
+
+        # Draw the graph lines
+        for i in range(1, len(self.cell_value_history)):
+            x1 = graph_left + (i - 1) * x_scale
+            y1 = graph_top - graph_height + (self.cell_value_history[i - 1] - y_min) * y_scale
+            x2 = graph_left + i * x_scale
+            y2 = graph_top - graph_height + (self.cell_value_history[i] - y_min) * y_scale
+            arcade.draw_line(x1, y1, x2, y2, arcade.color.BLUE, 2)
+
+        if self.smoothed_curve_data and self.initial_threshold_calculated:
+            # Current smoothed value
+            current_smoothed_value = self.smoothed_curve_data[-1]
+
+            # Calculate current thresholds based on the initial threshold difference
+            self.current_threshold_max = self.average_of_first_data_smoothed + self.threshold_diff / 2
+            self.current_threshold_min = self.average_of_first_data_smoothed - self.threshold_diff / 2
+
+            print("current_smoothed_value: ", current_smoothed_value)
+
+            # Draw the threshold lines
+            self.draw_threshold_line(self.current_threshold_max, arcade.color.GREEN, y_min, y_max, y_scale, graph_top, graph_height, graph_left, graph_width)
+            self.draw_threshold_line(self.current_threshold_min, arcade.color.RED, y_min, y_max, y_scale, graph_top, graph_height, graph_left, graph_width)
+
+        # Draw original and smoothed curves
+        self.draw_curve(self.cell_value_history, arcade.color.BLUE, y_min, y_max, y_scale, graph_left, graph_top,
+                        graph_height, graph_width)
+        self.draw_curve(self.smoothed_curve_data, arcade.color.RED, y_min, y_max, y_scale, graph_left, graph_top,
+                        graph_height, graph_width)
+
+        # Draw Y-axis
+        arcade.draw_line(graph_left, graph_top - graph_height, graph_left, graph_top, arcade.color.BLACK, 2)
+
+        # Draw Y-axis labels
+        y_label_interval = 40  # Set the interval for the y-axis labels
+        for value in range(y_min, y_max + y_label_interval, y_label_interval):
+            y = graph_top - graph_height + (value - y_min) * y_scale
+            arcade.draw_text(f"{value}", graph_left - 40, y, arcade.color.BLACK, font_size=10, anchor_x="right")
+
     def on_update(self, delta_time):
         # If automation is active, continuously call commander.read_raw
         if self.automation_active:
@@ -264,9 +323,8 @@ class MyGame(arcade.Window):
             self.perform_read_raw()
             if self.raw_data and self.calibration_data:
                 # Update the heatmap data
-                self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)[:remove_last_how_many_value]
-                # self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)
-                # print("len(self.heatmap_data): ", len(self.heatmap_data))
+                # self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)[:remove_last_how_many_value]
+                self.heatmap_data = self.raw_data[:remove_last_how_many_value]  # <---------- Test for raw data
                 self.heatmap_data[-10:] = [-777] * 10  # <--------------------- Remove it later
 
                 """ For switching col to row major"""
@@ -281,6 +339,7 @@ class MyGame(arcade.Window):
                 """ For switching col to row major"""
 
                 self.ros_publisher.publish_data(flattened_data)
+
 
         # Blinking arrow logic
         self.arrow_timer += delta_time
@@ -309,6 +368,97 @@ class MyGame(arcade.Window):
         if self.is_recording and self.heatmap_data is not None:
             self.record_to_csv()
 
+        if self.selected_cell:
+            row, col = self.selected_cell
+            index = row * self.matrix_width + col
+            if index < len(self.heatmap_data):
+                self.cell_value_history.append(self.heatmap_data[index])
+                # Update smoothed data continuously
+                self.cell_value_history = self.cell_value_history[-first_set_of_data:]
+                self.update_smoothed_curve_data()
+            if len(self.cell_value_history) == first_set_of_data and not self.initial_data_collected:
+                self.set_initial_thresholds()
+                self.initial_data_collected = True
+            elif len(self.cell_value_history) > first_set_of_data:
+                self.update_smoothed_curve_data()
+
+    def set_initial_thresholds(self):
+        # Calculate IQR for outlier detection
+        q1, q3 = np.percentile(self.cell_value_history[:first_set_of_data], [25, 75])
+        iqr = q3 - q1
+        lower_bound = q1 - 1.5 * iqr
+        upper_bound = q3 + 1.5 * iqr
+
+        # Filter out outliers
+        self.filtered_data = [x for x in self.cell_value_history[:first_set_of_data] if lower_bound <= x <= upper_bound]
+
+        # Update the smoothed curve with filtered data
+        self.smoothed_curve_data = self.calculate_moving_average(self.filtered_data)
+
+        # Calculate the initial threshold
+        self.initial_threshold_max = max(self.smoothed_curve_data)
+        self.initial_threshold_min = min(self.smoothed_curve_data)
+        self.threshold_diff = self.initial_threshold_max - self.initial_threshold_min
+
+        # Set flag that initial thresholds are calculated
+        self.initial_threshold_calculated = True
+
+    def calculate_moving_average(self, data, window_size=10):
+        # Calculate the moving average for the given data
+        smoothed_data = []
+        for i in range(len(data)):
+            window = data[max(0, i - window_size + 1):i + 1]
+            smoothed_data.append(np.mean(window))
+        self.average_of_first_data_smoothed = np.mean(smoothed_data)
+        return smoothed_data
+
+    def update_smoothed_curve_data(self, window_size=10):
+        if len(self.cell_value_history) >= window_size:
+            # Moving average for the smoothed curve
+            smoothed_value = np.mean(self.cell_value_history[-window_size:])
+            self.smoothed_curve_data.append(smoothed_value)
+
+            if not self.initial_threshold_calculated and len(self.smoothed_curve_data) == first_set_of_data:
+                # Calculate initial threshold difference
+                self.threshold_diff = max(self.smoothed_curve_data) - min(self.smoothed_curve_data)
+                self.initial_threshold_calculated = True
+
+            # Limit the length of data
+            if len(self.smoothed_curve_data) > first_set_of_data:
+                self.smoothed_curve_data.pop(0)
+
+    def draw_curve(self, data, color, y_min, y_max, y_scale, graph_left, graph_top, graph_height, graph_width):
+        if not data:
+            return
+
+        x_scale = graph_width / len(data)
+        for i in range(1, len(data)):
+            x1 = graph_left + (i - 1) * x_scale
+            y1 = graph_top - graph_height + (data[i - 1] - y_min) * y_scale
+            x2 = graph_left + i * x_scale
+            y2 = graph_top - graph_height + (data[i] - y_min) * y_scale
+            arcade.draw_line(x1, y1, x2, y2, color, 2)
+
+    def draw_threshold_line(self, value, color, y_min, y_max, y_scale, graph_top, graph_height, graph_left, graph_width):
+        # Logic to draw a horizontal line across the graph at 'value' height
+        y = graph_top - graph_height + (value - y_min) * y_scale
+        arcade.draw_line(graph_left, y, graph_left + graph_width, y, color, 2)
+
+    def check_threshold_condition(self):
+        if len(self.smoothed_curve_data) >= 10:
+            # Get the last 10 smoothed data points
+            if self.current_threshold_max is not None and self.current_threshold_min is not None:
+                last_10_data = self.smoothed_curve_data[-10:]
+                above_threshold = all(d > self.current_threshold_max for d in last_10_data)
+                below_threshold = all(d < self.current_threshold_min for d in last_10_data)
+
+                if above_threshold or below_threshold:
+                    self.graph_background_color = arcade.color.BLACK  # Change to black if condition is met
+                    self.threshold_triggered = True
+                elif self.threshold_triggered:
+                    # Reset to default color if condition is no longer met
+                    self.graph_background_color = arcade.color.WHITE_SMOKE
+                    self.threshold_triggered = False
 
     def on_draw(self):
         arcade.start_render()
@@ -330,11 +480,42 @@ class MyGame(arcade.Window):
         if self.show_heatmap:
             self.draw_heatmap()
 
+        self.check_threshold_condition()
+        self.draw_realtime_curve()
+
 
     def on_mouse_press(self, x, y, button, modifiers):
         if button == arcade.MOUSE_BUTTON_LEFT:
             for button in self.button_list:
                 button.check_click(x, y)
+            if self.show_heatmap:
+                self.check_heatmap_click(x, y)
+
+        # Right click
+        elif button == arcade.MOUSE_BUTTON_RIGHT:
+            self.show_graph = not self.show_graph  # Toggle the visibility of the graph
+            self.show_heatmap = not self.show_heatmap  # Toggle the visibility of the heatmap
+            if self.show_graph and self.selected_cell:
+                row, col = self.selected_cell
+                index = row * self.matrix_width + col
+                if index < len(self.heatmap_data):
+                    self.y_axis_center_value = self.heatmap_data[index]
+
+    def check_heatmap_click(self, x, y):
+        square_size = 60
+        start_x = SCREEN_WIDTH * 1.4 / 2 - (square_size * self.matrix_width) / 2
+        start_y = SCREEN_HEIGHT / 2 - (square_size * self.matrix_height) * 0.9 / 2
+
+        for row in range(self.matrix_height):
+            for col in range(self.matrix_width):
+                cell_x = start_x + col * square_size - 30
+                cell_y = start_y + row * square_size - 30
+                # Check if the click is within the bounds of the cell
+                if (cell_x <= x <= cell_x + square_size and
+                    cell_y <= y <= cell_y + square_size):
+                    self.selected_cell = (row, col)
+                    self.cell_value_history = []  # Reset the history
+                    return  # Exit after finding the clicked cell
 
     def on_mouse_motion(self, x, y, dx, dy):
         for button in self.button_list:
