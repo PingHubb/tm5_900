@@ -7,7 +7,7 @@ import threading
 import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
-from lan_control import sensor_serial_api, distance_calculation, distance_calculation_mujoco
+from lan_control import sensor_serial_api, distance_calculation, distance_calculation_test
 
 # Serial Communication Setup
 serial_port = '/dev/ttyACM0'
@@ -26,10 +26,9 @@ HOVER_COLOR = (255, 235, 59)  # Color when hovered
 first_set_of_data = 500
 
 """ For Demo """
-useless_row = 11  # Count from bottom to top, start from 0
-useless_col = -1  # Count from left to right, start from 0
+# useless_row = 11  # Count from bottom to top, start from 0
+# useless_col = -1  # Count from left to right, start from 0
 remove_last_how_many_value = -10  # Remove the last 10 values from the heatmap data
-
 
 class SensorDataPublisher(Node):
     def __init__(self):
@@ -40,7 +39,7 @@ class SensorDataPublisher(Node):
         msg = Float32MultiArray()
         msg.data = data
         self.publisher.publish(msg)
-        self.get_logger().info(f'Publishing: {data}, {len(data)}')
+        # self.get_logger().info(f'Publishing: {data}, {len(data)}')
 
 
 class NeonButton:
@@ -123,12 +122,15 @@ class MyGame(arcade.Window):
         self.threshold_triggered = False  # To track if the threshold condition is met
         self.current_threshold_max = None
         self.current_threshold_min = None
-
         self.moving_average_window = 10  # Window size for moving average
+
+        self.processed_data = {}  # Stores processed data for all cells
+        self.process_all = False
 
     def start_sequence(self):
         self.sequence_active = True
         self.sequence_step = 0
+        self.process_all = True  # Process data for all cells when "Start" is pressed
 
     def draw_arrow(self, x, y, direction):
         """ Draw a simple arrow pointing to the given coordinates. """
@@ -189,21 +191,21 @@ class MyGame(arcade.Window):
         global useless_row, useless_col
 
         # Min and Max values for the heatmap
-        min_value = 1
-        max_value = 2000
+        min_value = 0
+        max_value = 5000
 
-        self.matrix_height = self.channel_check[0]  # Height of the matrix
+        self.matrix_height = self.channel_check[0] - 1   # Height of the matrix
         self.matrix_width = self.channel_check[1]  # Width of the matrix
         square_size = 60  # Size of each square in the heatmap
         start_x = SCREEN_WIDTH * 1.4 / 2 - (square_size * self.matrix_width) / 2
         start_y = SCREEN_HEIGHT / 2 - (square_size * self.matrix_height) * 0.9 / 2
 
         for row in range(self.matrix_height):
-            if row == useless_row:  # Skip this row if it's the useless row
-                continue
+            # if row == useless_row:  # Skip this row if it's the useless row
+            #     continue
             for col in range(self.matrix_width):
-                if col == useless_col:  # Skip this column if it's the useless column
-                    continue
+                # if col == useless_col:  # Skip this column if it's the useless column
+                #     continue
 
                 x = start_x + col * square_size
                 y = start_y + row * square_size
@@ -215,12 +217,12 @@ class MyGame(arcade.Window):
                     color = arcade.color.BLUE  # Change color to blue for the selected cell
                 elif min_value <= value <= max_value:
                     red_intensity = int(255 * (value - min_value) / (max_value - min_value))
-                    color = (red_intensity, 0, 0, 255)
+                    color = (255, 255 - red_intensity, 255 - red_intensity)  # From white to red
                 else:
                     color = arcade.color.LIGHT_GRAY
 
                 arcade.draw_rectangle_filled(x, y, square_size, square_size, color)
-                text_color = arcade.color.WHITE if value <= 500 else arcade.color.BLACK
+                text_color = arcade.color.BLACK if value <= 1250 else arcade.color.WHITE  # Improved visibility
                 arcade.draw_text(str(value), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
                                  anchor_y="center")
 
@@ -262,7 +264,6 @@ class MyGame(arcade.Window):
         graph_top = SCREEN_HEIGHT * 0.9
         graph_width = SCREEN_WIDTH * 0.55
         graph_height = SCREEN_HEIGHT * 0.8
-
 
         # Draw background for the graph
         arcade.draw_rectangle_filled(graph_left + graph_width / 2, graph_top - graph_height / 2, graph_width,
@@ -323,9 +324,12 @@ class MyGame(arcade.Window):
             self.perform_read_raw()
             if self.raw_data and self.calibration_data:
                 # Update the heatmap data
-                # self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)[:remove_last_how_many_value]
+                # self.heatmap_data = distance_calculation_test.process_data(self.calibration_data, self.raw_data)[:remove_last_how_many_value]
+                # self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)
                 self.heatmap_data = self.raw_data[:remove_last_how_many_value]  # <---------- Test for raw data
-                self.heatmap_data[-10:] = [-777] * 10  # <--------------------- Remove it later
+                # self.heatmap_data[-10:] = [-777] * 10  # <--------------------- Remove it later
+                # self.heatmap_data[-10:] = [-8] * 10  # <--------------------- make last 10 to -777
+                # self.heatmap_data[:20] = [-8] * 20  # <--------------------- make first 20 to -777
 
                 """ For switching col to row major"""
                 # Create an empty matrix with the desired dimensions
@@ -339,7 +343,6 @@ class MyGame(arcade.Window):
                 """ For switching col to row major"""
 
                 self.ros_publisher.publish_data(flattened_data)
-
 
         # Blinking arrow logic
         self.arrow_timer += delta_time
@@ -373,6 +376,7 @@ class MyGame(arcade.Window):
             index = row * self.matrix_width + col
             if index < len(self.heatmap_data):
                 self.cell_value_history.append(self.heatmap_data[index])
+                print("index: ", index, "value: ", self.heatmap_data[index])
                 # Update smoothed data continuously
                 self.cell_value_history = self.cell_value_history[-first_set_of_data:]
                 self.update_smoothed_curve_data()
@@ -381,6 +385,43 @@ class MyGame(arcade.Window):
                 self.initial_data_collected = True
             elif len(self.cell_value_history) > first_set_of_data:
                 self.update_smoothed_curve_data()
+
+        if self.process_all:
+            self.process_all_cells()
+
+    def process_all_cells(self):
+        """Preprocess and store data for all cells."""
+        if not self.processed_data:  # Initialize if empty
+            for row in range(self.matrix_height):
+                for col in range(self.matrix_width):
+                    self.processed_data[(row, col)] = []
+            print(f"Processed data initialized with {self.matrix_height} x {self.matrix_width} cells.")
+            print(f"Length of processed data: {len(self.processed_data)}")
+
+        for row in range(self.matrix_height):
+            for col in range(self.matrix_width):
+                cell_index = row * self.matrix_width + col
+                if cell_index < len(self.heatmap_data):
+                    self.process_cell_data(row, col, self.heatmap_data[cell_index])
+                else:
+                    print(f"Data for cell ({row}, {col}) is out of range and cannot be processed.")
+
+    def process_cell_data(self, row, col, data):
+        """Append data for a single cell identified by row and col."""
+        # Append the data point to the specific cell's list
+        self.processed_data[(row, col)].append(data)
+        if len(self.processed_data[(row, col)]) > first_set_of_data:
+            # Remove the oldest data point to maintain a list size of 500
+            self.processed_data[(row, col)].pop(0)
+
+    def calculate_moving_average(self, data, window_size=10):
+        # Calculate the moving average for the given data
+        smoothed_data = []
+        for i in range(len(data)):
+            window = data[max(0, i - window_size + 1):i + 1]
+            smoothed_data.append(np.mean(window))
+        self.average_of_first_data_smoothed = np.mean(smoothed_data)
+        return smoothed_data
 
     def set_initial_thresholds(self):
         # Calculate IQR for outlier detection
@@ -402,15 +443,6 @@ class MyGame(arcade.Window):
 
         # Set flag that initial thresholds are calculated
         self.initial_threshold_calculated = True
-
-    def calculate_moving_average(self, data, window_size=10):
-        # Calculate the moving average for the given data
-        smoothed_data = []
-        for i in range(len(data)):
-            window = data[max(0, i - window_size + 1):i + 1]
-            smoothed_data.append(np.mean(window))
-        self.average_of_first_data_smoothed = np.mean(smoothed_data)
-        return smoothed_data
 
     def update_smoothed_curve_data(self, window_size=10):
         if len(self.cell_value_history) >= window_size:
@@ -482,7 +514,6 @@ class MyGame(arcade.Window):
 
         self.check_threshold_condition()
         self.draw_realtime_curve()
-
 
     def on_mouse_press(self, x, y, button, modifiers):
         if button == arcade.MOUSE_BUTTON_LEFT:
