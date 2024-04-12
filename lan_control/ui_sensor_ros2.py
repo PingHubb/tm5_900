@@ -7,7 +7,7 @@ import threading
 import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
-from lan_control import sensor_serial_api, distance_calculation, distance_calculation_mujoco
+from lan_control import sensor_serial_api, distance_calculation_mujoco
 
 # Serial Communication Setup
 serial_port = '/dev/ttyACM0'
@@ -267,7 +267,7 @@ class MyGame(arcade.Window):
                 self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)[:remove_last_how_many_value]
                 # self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)
                 # print("len(self.heatmap_data): ", len(self.heatmap_data))
-                self.heatmap_data[-10:] = [-777] * 10  # <--------------------- Remove it later
+                self.heatmap_data[-10:] = [-777] * 10  # <---------------------
 
                 """ For switching col to row major"""
                 # Create an empty matrix with the desired dimensions

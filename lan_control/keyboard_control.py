@@ -26,8 +26,10 @@ class JointPosition(Node):
 
         # Initialize variables
         self.motion_type = 1
-        self.target_position = [-0.2, 0.0, 1.58, 0.0, 1.58, 0.0]
-        self.old_target_position = [-0.2, 0.0, 1.58, 0.0, 1.58, 0.0]
+        self.target_position = np.array(
+            [0.8, 0.0, 1.58, 0.0, 1.58, 0.0])
+        self.old_target_position = np.array(
+            [0.8, 0.0, 1.58, 0.0, 1.58, 0.0])
         self.velocity = 3.14
         self.acc_time = 0.0  # MUST BE 0 to become FAST
         self.blend_percentage = 100  # MUST BE 100 to become SMOOTH
@@ -95,8 +97,10 @@ class MyGame(arcade.Window):
         # Return to starting point when 'o' is pressed
         elif key == arcade.key.O:
             self.run_test = False
-            self.joint_node.target_position = [-0.2, 0.0, 1.58, 0.0, 1.58, 0.0]
-            self.joint_node.old_target_position = [-0.2, 0.0, 1.58, 0.0, 1.58, 0.0]
+            self.joint_node.target_position = np.array(
+            [0.8, 0.0, 1.58, 0.0, 1.58, 0.0])
+            self.joint_node.old_target_position = np.array(
+            [0.8, 0.0, 1.58, 0.0, 1.58, 0.0])
             self.angle_increment = [0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
             self.joint_node.send_positions(self.joint_node.target_position)
 
@@ -114,6 +118,29 @@ class MyGame(arcade.Window):
 
         elif key == arcade.key.P:
             threading.Thread(target=self.robot_run).start()
+
+        elif key == arcade.key.A:
+
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.5, 0.0, 0.0, 0.0, 0.0, 0.0])
+        elif key == arcade.key.S:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [-0.5, 0.0, 0.0, 0.0, 0.0, 0.0])
+        elif key == arcade.key.D:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, 0.5, 0.0, 0.0, 0.0, 0.0])
+        elif key == arcade.key.F:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, -0.5, 0.0, 0.0, 0.0, 0.0])
+        elif key == arcade.key.G:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, 0.0, 0.5, 0.0, 0.0, 0.0])
+        elif key == arcade.key.H:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, 0.0, -0.5, 0.0, 0.0, 0.0])
+        elif key == arcade.key.J:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, 0.0, 0.0, 0.5, 0.0, 0.0])
+        elif key == arcade.key.K:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, 0.0, 0.0, -0.5, 0.0, 0.0])
+        elif key == arcade.key.L:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, 0.0, 0.0, 0.0, 0.5, 0.0])
+        elif key == arcade.key.SEMICOLON:
+            self.joint_node.send_positions(np.array(self.joint_node.current_position) + [0.0, 0.0, 0.0, 0.0, 0.0, 0.5])
+
 
     def robot_run(self):
         print("Test function started")

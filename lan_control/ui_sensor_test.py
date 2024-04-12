@@ -7,7 +7,7 @@ import threading
 import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
-from lan_control import sensor_serial_api, distance_calculation, distance_calculation_test
+from lan_control import sensor_serial_api
 
 # Serial Communication Setup
 serial_port = '/dev/ttyACM0'
@@ -23,12 +23,14 @@ BUTTON_Y_POSITIONS = [800, 600, 530, 460, 390, 320, 250, 150, 50]  # Adjust base
 NEON_COLOR = (58, 255, 217)  # A neon-like color
 HOVER_COLOR = (255, 235, 59)  # Color when hovered
 
-number_of_data = 100
+number_of_data = 50
+# threshold_offset = 4
+threshold_offset = 12
 
 """ For Demo """
-# useless_row = 11  # Count from bottom to top, start from 0
-# useless_col = -1  # Count from left to right, start from 0
 remove_last_how_many_value = -10  # Remove the last 10 values from the heatmap data
+useless_row = -999  # Row to skip in the heatmap
+useless_col = -999  # Column to skip in the heatmap
 
 class SensorDataPublisher(Node):
     def __init__(self):
@@ -106,7 +108,6 @@ class MyGame(arcade.Window):
         self.show_graph = False  # Add this line
         self.y_axis_center_value = None
         self.smoothed_curve_data = {}
-        self.initial_data_collected = False
         self.initial_threshold_calculated = {}
         self.threshold_diff = {}
         self.threshold_max = {}
@@ -120,7 +121,10 @@ class MyGame(arcade.Window):
         self.processed_data = {}  # Stores processed data for all cells
         self.temp_smoothed_data = {}
         self.process_all = False
-        self.current_smoothed_value = {}
+        self.initial_processing_done = False
+        self.cells_processed_initially = set()
+        self.red_intensity_dict = {}  # Initialize the dictionary to store red intensity values
+
 
     def start_sequence(self):
         self.sequence_active = True
@@ -162,7 +166,7 @@ class MyGame(arcade.Window):
 
     def perform_update_cal(self):
         self.calibration_data = self.commander.update_cal()
-        print(f"Calibration Data is equal to: {self.calibration_data}")
+        # print(f"Calibration Data is equal to: {self.calibration_data}")
 
     def perform_read_raw(self):
         self.raw_data = self.commander.read_raw()
@@ -180,86 +184,85 @@ class MyGame(arcade.Window):
         else:
             print("Automation Stopped")
 
-    # def draw_heatmap(self):
-    #     global useless_row, useless_col
-    #
-    #     # Min and Max values for the heatmap
-    #     min_value = 0
-    #     max_value = 5000
-    #
-    #     self.matrix_height = self.channel_check[0] - 1   # Height of the matrix
-    #     self.matrix_width = self.channel_check[1]  # Width of the matrix
-    #     square_size = 60  # Size of each square in the heatmap
-    #     start_x = SCREEN_WIDTH * 1.4 / 2 - (square_size * self.matrix_width) / 2
-    #     start_y = SCREEN_HEIGHT / 2 - (square_size * self.matrix_height) * 0.9 / 2
-    #
-    #     for row in range(self.matrix_height):
-    #         # if row == useless_row:  # Skip this row if it's the useless row
-    #         #     continue
-    #         for col in range(self.matrix_width):
-    #             # if col == useless_col:  # Skip this column if it's the useless column
-    #             #     continue
-    #
-    #             x = start_x + col * square_size
-    #             y = start_y + row * square_size
-    #             index = row * self.matrix_width + col
-    #             value = self.heatmap_data[index] if index < len(self.heatmap_data) else 0
-    #
-    #             # Check if this is the selected cell
-    #             if self.selected_cell == (row, col):
-    #                 color = arcade.color.BLUE  # Change color to blue for the selected cell
-    #             elif min_value <= value <= max_value:
-    #                 red_intensity = int(255 * (value - min_value) / (max_value - min_value))
-    #                 color = (255, 255 - red_intensity, 255 - red_intensity)  # From white to red
-    #             else:
-    #                 color = arcade.color.LIGHT_GRAY
-    #
-    #             arcade.draw_rectangle_filled(x, y, square_size, square_size, color)
-    #             text_color = arcade.color.BLACK if value <= 1250 else arcade.color.WHITE  # Improved visibility
-    #             arcade.draw_text(str(value), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
-    #                              anchor_y="center")
-
     def draw_heatmap(self):
         global useless_row, useless_col
 
         # Min and Max values for the heatmap
         min_value = 0
-        max_value = 5000
-
+        max_value = 100
         self.matrix_height = self.channel_check[0] - 1   # Height of the matrix
         self.matrix_width = self.channel_check[1]  # Width of the matrix
         square_size = 60  # Size of each square in the heatmap
-        start_x = SCREEN_WIDTH * 1.4 / 2 - (square_size * self.matrix_width) / 2
-        start_y = SCREEN_HEIGHT / 2 - (square_size * self.matrix_height) * 0.9 / 2
+
+        # Adjust starting positions for an additional 90 degrees, total 180 from original
+        start_x = SCREEN_WIDTH / 2 - (square_size * self.matrix_height) / 2 + 200
+        start_y = SCREEN_HEIGHT / 2 - (square_size * self.matrix_width) / 2
 
         for row in range(self.matrix_height):
-            # if row == useless_row:  # Skip this row if it's the useless row
-            #     continue
+            if row == useless_row:
+                continue
             for col in range(self.matrix_width):
-                # if col == useless_col:  # Skip this column if it's the useless column
-                #     continue
+                if col == useless_col:
+                    continue
 
-                x = start_x + col * square_size
-                y = start_y + row * square_size
-                index = row * self.matrix_width + col
-                value = self.heatmap_data[index] if index < len(self.heatmap_data) else 0
+                x = start_x + row * square_size
+                y = start_y + (self.matrix_width - 1 - col) * square_size
 
-                # Check if this is the selected cell
+                if (row, col) in self.smoothed_curve_data and self.smoothed_curve_data[(row, col)]:
+                    value = self.smoothed_curve_data[(row, col)][-1]
+                else:
+                    value = 0
+
                 if self.selected_cell == (row, col):
-                    color = arcade.color.BLUE  # Change color to blue for the selected cell
-                elif min_value <= value <= max_value:
-                    red_intensity = int(255 * (value - min_value) / (max_value - min_value))
-                    color = (255, 255 - red_intensity, 255 - red_intensity)  # From white to red
+                    color = arcade.color.BLUE
                 elif self.threshold_triggered.get((row, col), False) is True:
-                    color = arcade.color.GREEN
-
+                    difference = self.threshold_min[(row, col)] - value
+                    # Scale the difference to a value between 0 and 255, considering the range of difference
+                    red_intensity = int(((difference - min_value) / (max_value - min_value)) * 255)
+                    red_intensity = max(0, min(255, red_intensity))  # Ensure red_intensity is within 0-255
+                    self.red_intensity_dict[(row, col)] = red_intensity  # Store the intensity in the dictionary
+                    color = (255, 255 - red_intensity, 255 - red_intensity)
+                    # # If red_intensity reaches 255, set the color to dark blue
+                    # if red_intensity == 255:
+                    #     color = arcade.color.DARK_BLUE
+                    # else:
+                    #     color = (255, 255 - red_intensity, 255 - red_intensity)
                 else:
                     color = arcade.color.LIGHT_GRAY
+                    self.red_intensity_dict[(row, col)] = 0  # Store 0 intensity for cells not meeting threshold
 
                 arcade.draw_rectangle_filled(x, y, square_size, square_size, color)
-                text_color = arcade.color.BLACK if value <= 1250 else arcade.color.WHITE  # Improved visibility
-                arcade.draw_text(str(value), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
-                                 anchor_y="center")
+                text_color = arcade.color.BLACK
+                # arcade.draw_text(str(self.red_intensity_dict[(row, col)]), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
+                #                  anchor_y="center")
+                # arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
+                #                  anchor_y="center")
+
+        # Assuming you want to use 0 as the default red intensity for missing cells
+        red_intensity_list = [self.red_intensity_dict.get((row, col), 0) for row in range(self.matrix_height) for col in
+                              range(self.matrix_width) if
+                              (row, col) in self.red_intensity_dict or (row != useless_row and col != useless_col)]
+
+        """ For testing the ROS publisher"""
+        jj_test = red_intensity_list.copy()  # dim: 110
+        jj_text_100 = jj_test[:100]  # dim: 100
+
+        # # Create an empty matrix with the desired dimensions
+        # row_major_matrix = [[None for _ in range(10)] for _ in range(11)]  # 11 rows and 10 columns
+        # # Populate the matrix in col-major order
+        # for index, value in enumerate(jj_test):
+        #     row = index % 11
+        #     col = index // 11
+        #     row_major_matrix[row][col] = value
+        # flattened_data = [item for sublist in row_major_matrix for item in sublist]
+
+        self.ros_publisher.publish_data(jj_test)
+
+        # matrix_flattened_data = np.array(flattened_data).reshape(11, 10)
+        # matrix_jj_test = np.array(jj_test).reshape(11, 10)
+        # print("Matrix flattened data: ", matrix_flattened_data)
+        # print("Matrix jj test: ", matrix_jj_test)
+        """ For testing the ROS publisher"""
 
     def record_heatmap_data(self):
         self.is_recording = not self.is_recording  # Toggle recording state
@@ -297,9 +300,8 @@ class MyGame(arcade.Window):
             self.perform_read_raw()
             if self.raw_data and self.calibration_data:
                 # Update the heatmap data
-                # self.heatmap_data = distance_calculation_test.process_data(self.calibration_data, self.raw_data)[:remove_last_how_many_value]
-                # self.heatmap_data = distance_calculation_mujoco.process_data(self.calibration_data, self.raw_data)
                 self.heatmap_data = self.raw_data[:remove_last_how_many_value]  # <---------- Test for raw data
+                # print("length of heatmap data: ", len(self.heatmap_data))
 
                 """ For switching col to row major"""
                 # Create an empty matrix with the desired dimensions
@@ -312,7 +314,9 @@ class MyGame(arcade.Window):
                 flattened_data = [item for sublist in row_major_matrix for item in sublist]
                 """ For switching col to row major"""
 
-                self.ros_publisher.publish_data(flattened_data)
+                # self.ros_publisher.publish_data(flattened_data)
+                # print("Length of heatmap data: ", len(flattened_data))
+                # print("Heatmap data: ", flattened_data)
 
         # Blinking arrow logic
         self.arrow_timer += delta_time
@@ -345,10 +349,12 @@ class MyGame(arcade.Window):
             row, col = self.selected_cell
             index = row * self.matrix_width + col
             if index < len(self.heatmap_data):
-                print("index: ", index, "value: ", self.heatmap_data[index])
+                print(f"Index: {index}, Row: {row}, Col: {col}, Value: {self.heatmap_data[index]}")
 
         if self.process_all:
             self.process_all_cells()
+
+        self.update_background_color_for_selected_cell()
 
     def process_all_cells(self):
         """Preprocess and store data for all cells."""
@@ -360,7 +366,6 @@ class MyGame(arcade.Window):
             print(f"Length of processed data: {len(self.processed_data)}")
 
         if self.processed_data:
-            # a = time.time()  # Start the timer
             for row in range(self.matrix_height):
                 for col in range(self.matrix_width):
                     cell_index = row * self.matrix_width + col  # matrix_width is 10, because 10 columns
@@ -368,7 +373,6 @@ class MyGame(arcade.Window):
                         self.process_cell_data(row, col, self.heatmap_data[cell_index])  # Process the data for each cell repeatedly
                     else:
                         print(f"Data for cell ({row}, {col}) is out of range and cannot be processed.")
-            # print("Time taken to process all cells: ", time.time() - a)  # Print the time taken to process all cells
 
     def process_cell_data(self, row, col, data):  # Only 1 cell of data is entering here each time
         """Append data for a single cell identified by row and col."""
@@ -378,6 +382,13 @@ class MyGame(arcade.Window):
             self.processed_data[(row, col)].pop(0)
         if len(self.processed_data[(row, col)]) == number_of_data:
             self.set_thresholds(row, col, self.processed_data[(row, col)])
+            # Add cell to the tracker
+            self.cells_processed_initially.add((row, col))
+
+            # Check if all cells have reached the initial processing stage
+            if len(self.cells_processed_initially) == self.matrix_height * self.matrix_width and not self.initial_processing_done:
+                print("Start processing the data")
+                self.initial_processing_done = True
 
     def set_thresholds(self, row, col, data):  # "number_of_data" data of 1 cell is entering here
         # Calculate IQR for outlier detection
@@ -395,8 +406,8 @@ class MyGame(arcade.Window):
 
         # Calculate the initial threshold
         if (row, col) not in self.threshold_max or not self.initial_threshold_calculated[(row, col)]:
-            self.threshold_max[(row, col)] = max(self.filtered_data[(row, col)])
-            self.threshold_min[(row, col)] = min(self.filtered_data[(row, col)])
+            self.threshold_max[(row, col)] = max(self.filtered_data[(row, col)]) + threshold_offset
+            self.threshold_min[(row, col)] = min(self.filtered_data[(row, col)]) - threshold_offset
             self.threshold_diff[(row, col)] = self.threshold_max[(row, col)] - self.threshold_min[(row, col)]
             # print(f"Max and Min thresholds for cell ({row}, {col}): {self.threshold_max[(row, col)]}, {self.threshold_min[(row, col)]}")
 
@@ -419,6 +430,82 @@ class MyGame(arcade.Window):
 
         # Return the updated smoothed data for this cell
         return self.temp_smoothed_data[(row, col)]
+
+    def check_heatmap_click(self, x, y):
+        square_size = 60
+        # These starting positions should match those used in draw_heatmap
+        start_x = SCREEN_WIDTH / 2 - (square_size * self.matrix_height) / 2 + 200
+        start_y = SCREEN_HEIGHT / 2 - (square_size * self.matrix_width) / 2
+
+        cell_selected = False  # Track if a cell gets selected in this method call
+
+        for row in range(self.matrix_height):
+            for col in range(self.matrix_width):
+                # Adjust for the 180-degree rotation, similar to the adjustments in draw_heatmap
+                cell_x = start_x + row * square_size - square_size / 2  # Center of cell horizontally
+                cell_y = start_y + (
+                            self.matrix_width - 1 - col) * square_size - square_size / 2  # Center of cell vertically
+
+                # Check if the click is within the bounds of the cell
+                if (cell_x <= x <= cell_x + square_size and
+                        cell_y <= y <= cell_y + square_size):
+                    # Toggle selection state for the clicked cell
+                    if self.selected_cell == (row, col):
+                        self.selected_cell = None  # Deselect if already selected
+                    else:
+                        self.selected_cell = (row, col)  # Select the cell
+                    cell_selected = True
+                    break  # Cell found, no need to continue checking
+            if cell_selected:
+                break  # Exit the loop early since we've handled the click
+
+        # Deselect if clicked outside any cell
+        if not cell_selected and self.selected_cell is not None:
+            self.selected_cell = None
+
+    def check_threshold_condition(self):
+
+        for row in range(self.matrix_height):
+            for col in range(self.matrix_width):
+                cell_key = (row, col)
+
+                # Assume the cell has not triggered the threshold initially
+                self.threshold_triggered[cell_key] = False
+
+                if cell_key in self.smoothed_curve_data and len(self.smoothed_curve_data[cell_key]) >= 2:
+                    last_data = self.smoothed_curve_data[cell_key][-2:]
+                    above_threshold = all(d > self.threshold_max[cell_key] for d in last_data)
+                    below_threshold = all(d < self.threshold_min[cell_key] for d in last_data)
+
+                    if above_threshold:
+                        self.threshold_triggered[cell_key] = True
+                        above_threshold_triggered = True
+                    elif below_threshold:
+                        self.threshold_triggered[cell_key] = True
+                        below_threshold_triggered = True
+
+    def update_background_color_for_selected_cell(self):
+
+        if self.selected_cell:  # Ensure there is a selected cell
+            cell_key = self.selected_cell
+            # Check if the selected cell has triggered the threshold
+            if cell_key in self.threshold_triggered and self.threshold_triggered[cell_key]:
+                # Check whether it's above or below the threshold
+                if len(self.smoothed_curve_data[cell_key]) >= 2:
+                    last_data = self.smoothed_curve_data[cell_key][-2:]
+                    above_threshold = all(d > self.threshold_max[cell_key] for d in last_data)
+                    below_threshold = all(d < self.threshold_min[cell_key] for d in last_data)
+
+                    if above_threshold:
+                        self.graph_background_color = arcade.color.GREEN  # Selected cell above threshold
+                    elif below_threshold:
+                        self.graph_background_color = arcade.color.BLACK  # Selected cell below threshold
+                    else:
+                        self.graph_background_color = arcade.color.WHITE_SMOKE  # Selected cell within thresholds
+            else:
+                self.graph_background_color = arcade.color.WHITE_SMOKE  # Selected cell has no threshold data or isn't triggered
+        else:
+            self.graph_background_color = arcade.color.WHITE_SMOKE  # No cell selected
 
     def on_draw(self):
         arcade.start_render()
@@ -463,20 +550,6 @@ class MyGame(arcade.Window):
                 index = row * self.matrix_width + col
                 if index < len(self.heatmap_data):
                     self.y_axis_center_value = self.heatmap_data[index]
-
-    def check_heatmap_click(self, x, y):
-        square_size = 60
-        start_x = SCREEN_WIDTH * 1.4 / 2 - (square_size * self.matrix_width) / 2
-        start_y = SCREEN_HEIGHT / 2 - (square_size * self.matrix_height) * 0.9 / 2
-
-        for row in range(self.matrix_height):
-            for col in range(self.matrix_width):
-                cell_x = start_x + col * square_size - 30
-                cell_y = start_y + row * square_size - 30
-                # Check if the click is within the bounds of the cell
-                if (cell_x <= x <= cell_x + square_size and
-                    cell_y <= y <= cell_y + square_size):
-                    self.selected_cell = (row, col)
 
     def draw_curve(self, data, color, y_min, y_max, y_scale, graph_left, graph_top, graph_height, graph_width):
         if not data:
@@ -550,31 +623,6 @@ class MyGame(arcade.Window):
         for value in range(y_min, y_max + y_label_interval, y_label_interval):
             y = graph_top - graph_height + (value - y_min) * y_scale
             arcade.draw_text(f"{value}", graph_left - 40, y, arcade.color.BLACK, font_size=10, anchor_x="right")
-
-    def check_threshold_condition(self):
-        any_cell_triggered = False  # Track if any cell has triggered the threshold
-
-        for row in range(self.matrix_height):
-            for col in range(self.matrix_width):
-                cell_key = (row, col)
-
-                # Assume the cell has not triggered the threshold initially
-                self.threshold_triggered[cell_key] = False
-
-                if cell_key in self.smoothed_curve_data and len(self.smoothed_curve_data[cell_key]) >= 5:
-                    last_data = self.smoothed_curve_data[cell_key][-5:]
-                    above_threshold = all(d > self.threshold_max[cell_key] for d in last_data)
-                    below_threshold = all(d < self.threshold_min[cell_key] for d in last_data)
-
-                    if above_threshold or below_threshold:
-                        self.threshold_triggered[cell_key] = True
-                        any_cell_triggered = True  # At least one cell has triggered the threshold
-
-        # Update the global background color based on whether any cell has triggered
-        if any_cell_triggered:
-            self.graph_background_color = arcade.color.BLACK
-        else:
-            self.graph_background_color = arcade.color.WHITE_SMOKE
 
 
 def main():

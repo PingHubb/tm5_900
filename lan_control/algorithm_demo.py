@@ -323,7 +323,7 @@ class JointPosition(Node):
         for i in range(110):
             if sensor_info[i] < 0.0:
                 continue
-            if abs(sensor_info[i] - 1) < 2.0001:
+            if abs(sensor_info[i] - 1) > 253.9:
                 local_point = self.initial_sensor_points[i] # dim: 3x1
                 local_translate = np.eye(4) # dim: 4x4
                 local_translate[:3, 3] = local_point # dim: 3x1
@@ -332,72 +332,65 @@ class JointPosition(Node):
                 list_version = local_point.tolist()
                 # print(list_version, flush=True)
 
-                if i in {0, 1, 2, 3, 10, 11, 12, 13, 14, 20, 21, 22, 23, 30, 31, 32, 33}:
-                    # Move to right bottom
-                    local_normal = [-1, 0, 0]
-                elif i in {6, 7,  8,  9, 16, 17, 18, 19, 26, 27, 28, 29, 36, 37, 38, 39}:
-                    # Move to left bottom
-                    # local_normal = [1, 1, -1]
-                    local_normal = [-1, -1, 1]
-                elif i in {70, 71, 72,73,80,81,82,83,90,91,92,93,100,101,102,103}:
-                    # Move to right top
-                    # local_normal = [-1, -1, 1]
-                    local_normal = [1, 1, -1]
-                elif i in {66,67,68,69,76,77,78,79,86,87,88,89,96,97,98,99}:
-                    # Move to left top
-                    local_normal = [1, 0, 0]
-                elif i in {4,5,14,15,24,25,34,35}:
-                    # Move to the downward
-                    local_normal = [0, 0.5, -0.5]
-                elif i in {44, 45, 54,55,64,65,74,75, 84,85,94,95,104,105}:
-                    # Move to backward
-                    # local_normal = [0.03, 0.03, -0.05]
-                    # local_normal = [0, -0.5, 0.5]  # <-- this is upward
-                    local_normal = [1, 0, 0]
+                # if i in {0, 1, 2, 3, 10, 11, 12, 13, 14, 20, 21, 22, 23, 30, 31, 32, 33}:
+                #     # Move to right bottom
+                #     local_normal = [-1, 0, 0]
+                # elif i in {6, 7,  8,  9, 16, 17, 18, 19, 26, 27, 28, 29, 36, 37, 38, 39}:
+                #     # Move to left bottom
+                #     local_normal = [1, 1, -1]
+                # elif i in {70, 71, 72,73,80,81,82,83,90,91,92,93,100,101,102,103}:
+                #     # Move to right top
+                #     local_normal = [-1, -1, 1]
+                # elif i in {76,77,78,79,86,87,88,89,96,97,98,99,106,107,108,109}:
+                #     # Move to left top
+                #     local_normal = [1, 0, 0]
+                # # elif i in {4,5,14,15,24,25,34,35}:
+                # #     # Move to the downward
+                # #     local_normal = [0, 0.5, -0.5]
+                # elif i in {4,5,14,15,24,25,34,35, 44, 45, 54,55,64,65,74,75, 84,85,94,95,104,105}:
+                #     # Move to backward
+                #     # local_normal = [0.03, 0.03, -0.05]
+                #     # local_normal = [0, -0.5, 0.5]  # <-- this is upward
+                #     local_normal = [1, 0, 0]
+                # elif i in {40,41,42,43,50,51,52,53,60,61,62,63}:
+                #     # Move to the right
+                #     local_normal = [-1.1, -0.5, 0.5]
+                # elif i in [46,47,48,49,56,57,58,59,66,67,68,69]:
+                #     # Move to the left
+                #     local_normal = [1.4, 0.5, -0.5]
+                # else:
+                #     continue
 
-                elif i in {40,41,42,43,50,51,52,53,60,61,62,63}:
-                    # Move to the right
-                    local_normal = [-1, -0.5, 0.5]
-                elif i in [46,47,48,49,56,57,58,59,66,67,68,69]:
-                    # Move to the left
-                    local_normal = [1, 0.5, -0.5]
-
-                # elif i == 104 or i == 105 or i == 106:
-                #     # Move to the upward
-                #     local_normal = [0, -0.5, 0.5]
-                else:
-                    continue
-
-                local_normal = forward_kinematic_class.normalize(local_normal) # dim: 3x1
-                local_normal = np.array(local_normal)  # Convert local_normal to a NumPy array
-
-                local_normal *= sensor_info[i] * 0.01 # dim: 3x1
-                local_offset = np.eye(4) # dim: 4x4
-                local_offset[:3, 3] = local_normal # dim: 3x1 # local_offset = distance from sensor to surface
-
-                mapped_point = (link5_transform @ local_translate @ local_offset)[:3, 3] # dim: 3x1
-                surface_point = (link5_transform @ local_translate)[:3, 3] # dim: 3x1
-
-                vec = surface_point - mapped_point
-                self.delta += vec
-
-                # local_point = self.initial_sensor_points[i]
-                # local_normal = np.array([local_point[0], 0, local_point[2]])
-                # local_normal = forward_kinematic_class.normalize(local_normal)
+                # local_normal = forward_kinematic_class.normalize(local_normal) # dim: 3x1
+                # local_normal = np.array(local_normal)  # Convert local_normal to a NumPy array
                 #
-                # local_normal = np.array(local_normal)  # Ensure local_normal is a NumPy array
-                # sensor_info = np.array(sensor_info)  # Convert sensor_info to a NumPy array
+                # local_normal *= sensor_info[i] * 0.01 # dim: 3x1
+                # local_offset = np.eye(4) # dim: 4x4
+                # local_offset[:3, 3] = local_normal # dim: 3x1 # local_offset = distance from sensor to surface
                 #
-                # local_normal *= sensor_info[i] * 0.01
-                # local_translate = np.eye(4)
-                # local_translate[:3, 3] = local_point
-                # local_offset = np.eye(4)
-                # local_offset[:3, 3] = local_normal
+                # mapped_point = (link5_transform @ local_translate @ local_offset)[:3, 3] # dim: 3x1
+                # surface_point = (link5_transform @ local_translate)[:3, 3] # dim: 3x1
                 #
-                # mapped_point = (link5_transform @ local_translate @ local_offset)[:3, 3]
-                # surface_point = (link5_transform @ local_translate)[:3, 3]
                 # vec = surface_point - mapped_point
                 # self.delta += vec
+
+                local_point = self.initial_sensor_points[i]
+                local_normal = np.array([local_point[0], 0, local_point[2]])
+                local_normal = forward_kinematic_class.normalize(local_normal)
+
+                local_normal = np.array(local_normal)  # Ensure local_normal is a NumPy array
+                sensor_info = np.array(sensor_info)  # Convert sensor_info to a NumPy array
+
+                local_normal *= sensor_info[i] * 0.01
+                local_translate = np.eye(4)
+                local_translate[:3, 3] = local_point
+                local_offset = np.eye(4)
+                local_offset[:3, 3] = local_normal
+
+                mapped_point = (link5_transform @ local_translate @ local_offset)[:3, 3]
+                surface_point = (link5_transform @ local_translate)[:3, 3]
+                vec = surface_point - mapped_point
+                self.delta += vec
 
         if forward_kinematic_class.norm(self.delta) < 0.0001:
             pass

@@ -1,11 +1,13 @@
+from typing import Any
 import rclpy
+from numpy import ndarray, dtype, floating, float_
+from numpy._typing import _64Bit
 from rclpy.node import Node
 from rclpy import logging
 import numpy as np
 import math
 import threading
 import time
-
 from math import cos, sin
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, String
 from tm_msgs.srv import SetEvent, SetPositions
@@ -16,15 +18,32 @@ d = 0.01
 rho = 0.1
 eta = 0.0001
 
-goal_joint_states = [0.0, 0.0, 1.58, 0.0, 1.58, 0.0]
+goal_positions = [1.0, 0.0, 1.57, 0.0, 1.57, 0.0]
+# goal_positions = [math.radians(-180), math.radians(45), math.radians(45), math.radians(0), math.radians(90), math.radians(0)]
+# goal_positions = [-4.28372736e-03, -4.88533739e-01, 1.57943555e+00, -1.09090181e+00 + math.pi / 2, 1.56651260e+00, -1.95721289e-12]
 
-class ForwardKinematic:
-    def __init__(self):
-        for attr in ['T01', 'T12', 'T23', 'T34', 'T45', 'T56', 'T02', 'T03', 'T04', 'T05', 'T06', 'J']:
-            setattr(self, attr, None)
+class ArtificialPotentialField:
+    def __init__(self, joint_position_instance):
+        self.joint_position_instance = joint_position_instance
+        self.Frep = None
+        self.T01 = None
+        self.T12 = None
+        self.T23 = None
+        self.T34 = None
+        self.T45 = None
+        self.T56 = None
+        self.T02 = None
+        self.T03 = None
+        self.T04 = None
+        self.T05 = None
+        self.T06 = None
+        self.J = None
+        self.id_jac = None
+        self.delta = None
+        self.current_positions_variable = None
+        self.goal_positions_variable = None
 
     def transformation_matrix(self, angle):
-
         self.T01 = np.array([[cos(angle[0]), -sin(angle[0]), 0, 0],
                              [sin(angle[0]), cos(angle[0]), 0, 0],
                              [0, 0, 1, 0.1452],
@@ -54,30 +73,46 @@ class ForwardKinematic:
         self.T03 = self.T02 @ self.T23
         self.T04 = self.T03 @ self.T34
         self.T05 = self.T04 @ self.T45
-        self.T06 = self.T05 @ self.T56
+        self.T06 = self.T05 @ self.T56  # dim = 4x4
 
-        # Now, let's also compute the Jacobian
         self.J = self.jacobian()
+        # print(f"Jacobian: ", self.J, flush=True)
 
-    def jacobian(self):  # Based on the geometric approach
+    def jacobian(self):
+        # Initialize a 6x6 Jacobian matrix with zeros
         J = np.zeros((6, 6))
-        end_effector_pos = self.T06[:3, 3]  # Extracting the position of the end-effector
 
+        # The position of the end-effector is extracted from the last column of the T06 matrix
+        end_effector_pos = self.T06[:3, 3]
+
+        # A list of transformation matrices leading up to each joint
+        # np.eye(4) represents the identity matrix for the base frame
         transforms = [np.eye(4), self.T01, self.T02, self.T03, self.T04, self.T05]
 
         for i in range(6):
+            # Extract the position of the current joint from the transformation matrix
             joint_pos = transforms[i][:3, 3]
-            z_axis = transforms[i][:3, 2]  # z-axis after i-th transformation
 
-            # Linear velocity part (top 3 rows of the Jacobian)
-            J[:3, i] = np.cross(z_axis, end_effector_pos - joint_pos)
+            # Extract the z-axis direction vector of the current joint from the transformation matrix
+            z_axis = transforms[i][:3, 2]
 
-            # Angular velocity part (bottom 3 rows of the Jacobian)
-            J[3:, i] = z_axis
+            # Compute the linear velocity component for the Jacobian
+            # It's calculated as the cross product of the z-axis direction vector and the vector from the joint to the end-effector
+            linear_velocity_component = np.cross(z_axis, end_effector_pos - joint_pos)
+            # print(f"linear_velocity_component: ", linear_velocity_component, flush=True)
+
+            # The angular velocity component for the Jacobian is directly the z-axis direction vector for revolute joints
+            angular_velocity_component = z_axis
+
+            # Update the Jacobian matrix for the current joint
+            # Linear velocity components go to the top 3 rows
+            J[:3, i] = linear_velocity_component
+            # Angular velocity components go to the bottom 3 rows
+            J[3:, i] = angular_velocity_component
 
         return J
 
-    def get_jacobian_by_index(self, jac, idx):
+    def get_jacobian_by_index(self, jac, idx):  # only a subset of the robot's joints (up to the specified index) is considered for some calculation or analysis.
         # Create a zero matrix with the same dimensions as the Eigen::MatrixXd::Zero(3, 6)
         self.id_jac = np.zeros((3, 6))
 
@@ -89,13 +124,13 @@ class ForwardKinematic:
 
         return self.id_jac
 
-    def diff_norm(self, current_positions, goal_joint_states):
+    def diff_norm(self, current_positions, goal_positions):
         # Convert lists to numpy arrays if they aren't already
         self.current_positions_variable = np.asarray(current_positions)
-        self.goal_joint_states_variable = np.asarray(goal_joint_states)
+        self.goal_positions_variable = np.asarray(goal_positions)
 
         # Calculate the L2 norm (Euclidean distance)
-        self.l2_sum = np.sum((self.current_positions_variable - self.goal_joint_states_variable) ** 2)
+        self.l2_sum = np.sum((self.current_positions_variable - self.goal_positions_variable) ** 2)
         return np.sqrt(self.l2_sum)
 
     def norm(self, q):
@@ -115,23 +150,101 @@ class ForwardKinematic:
             self.total_norm += row_norm
         return self.total_norm
 
+    def calculate_repulsive_force(self):
+        # Rotation matrix for 20 degrees anticlockwise around the Z-axis
+        theta = np.deg2rad(20)  # Convert 20 degrees to radians
+        R_z = np.array([[np.cos(theta), -np.sin(theta), 0],
+                        [np.sin(theta), np.cos(theta),  0],
+                        [0,             0,              1]])
+        R_z_4x4 = np.eye(4)
+        R_z_4x4[:3, :3] = R_z  # Embed the original R_z into the top-left
+        # Rotation matrix around Y-axis
+        R_y = np.array([[np.cos(theta), 0, np.sin(theta)],
+                        [0, 1, 0],
+                        [-np.sin(theta), 0, np.cos(theta)]])
+
+        # Rotation matrix around X-axis
+        R_x = np.array([[1, 0, 0],
+                        [0, np.cos(theta), -np.sin(theta)],
+                        [0, np.sin(theta), np.cos(theta)]])
+
+        self.Frep = np.zeros((6, 3))  # Create a matrix of zeros
+        sensor_info = self.joint_position_instance.sensor_signal  # Accessing the sensor_signal attribute
+        link5_transform = self.T05
+        self.delta = np.zeros(3)  # Assuming delta is a 3D vector
+
+        for i in range(100):
+            if sensor_info[i] > 50:
+                local_point = self.joint_position_instance.initial_sensor_points[i]  # dim: 3x1
+                local_translate = np.eye(4)  # np.eye[4] creates a 4x4 identity matrix
+                local_translate[:3, 3] = local_point  # select the first 3 rows and the 4th column and assign local_point to it
+
+                local_normal = self.normalize(np.array([local_point[0], local_point[1], local_point[2]]))  # Normalize the local_normal vector
+                # local_normal = local_normal * sensor_info[i] * 0.01 / 255
+
+                local_offset = np.eye(4)  # dim: 4x4
+                local_offset[:3, 3] = local_normal  # dim: 3x1 # local_offset = distance from sensor to surface
+
+                mapped_point_transform = link5_transform @ local_translate @ local_offset
+                # mapped_point_rotated = mapped_point_transform @ R_z_4x4
+                mapped_point = mapped_point_transform[:3, 3]
+
+                surface_point_transform = link5_transform @ local_translate
+                # surface_point_rotated = surface_point_transform @ R_z_4x4
+                surface_point = surface_point_transform[:3, 3]  # Extracting x, y, z position
+
+                vec = surface_point - mapped_point
+                self.delta += vec
+
+            # Calculate the repulsive force based on the delta
+        if self.norm(self.delta) < 0.0001:
+            pass
+
+        else:
+            self.delta = self.normalize(self.delta)
+            dist = 0.01  # this seems to be a fixed small distance value
+            f = eta * (1 / dist - 1 / rho) * (1 / (dist**2)) * np.array(self.delta)
+            self.Frep[4, :] = f  # Assuming that the repulsive force is applied to the 5th row (index 4)
+
+        return self.Frep
+
+    def control_update(self, Frep, Fatt):
+        F = Fatt + Frep
+        jac = self.jacobian()
+        current_joint_states = self.joint_position_instance.current_positions
+
+        control = np.zeros(6) # dim: 6x1
+
+        for i in range(5, 6):  # this loop will iterate exactly once, with i taking the value of 5, over the last joint
+            jac_i = self.get_jacobian_by_index(jac, i)
+            v = jac_i.T @ Fatt[i, :].T
+            control += v
+
+        for i in range(6):
+            jac_i = self.get_jacobian_by_index(jac, i)
+            v = jac_i.T @ Frep[i, :].T
+            control += v
+
+        if self.norm(control) < 0.05 and self.diff_norm(current_joint_states, goal_positions) > 1.0:
+            # Log local minimum correction
+            for j in range(6):
+                control[j] += (goal_positions[j] - current_joint_states[j]) * 0.01
+
+        return control.tolist()
+
 
 class JointPosition(Node):
-    def spin_in_thread(self):
-        """This function will spin the ROS node separately."""
-        rclpy.spin(self)
-
     def __init__(self):
         super().__init__('joint_position')
 
         self.counter = 1
-        self.latest_positions = None
+        self.current_positions = None
         self.sensor_signal = None
         self.initial_sensor_points = None  # Initialize the sensor points
 
         # Initialize variables
         self.motion_type = 1
-        self.location_radians = [0.0, 0.0, 1.58, 0.0, 1.58, 0.0]
+        self.goal_positions = [1.0, 0.0, 1.57, 0.0, 1.57, 0.0]
         self.velocity = 3.14
         self.acc_time = 0.0
         self.blend_percentage = 100
@@ -148,26 +261,25 @@ class JointPosition(Node):
         self.client = self.create_client(SetPositions, "/set_positions")
         while not self.client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Waiting for SetPositions to become available...')
-        self.send_positions(self.location_radians)
+        self.send_positions(self.goal_positions)
 
         # New ROS2 Service client setup for MyService
         self.my_service_client = self.create_client(SetEvent, "/set_event")
         while not self.my_service_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Waiting for SetEvent to become available...')
 
+    def spin_in_thread(self):
+        """This function will spin the ROS node separately."""
+        rclpy.spin(self)
+
     def joint_position_callback(self, msg):
         """Callback to process the joint state data from the subscribed topic."""
-        # self.get_logger().info(f"Positions: {msg.position}")
-        self.latest_positions = msg.position
-        # ForwardKinematic().transformation_matrix(msg.position)
+        self.current_positions = msg.position
 
     def sensor_callback(self, signal):
         """Callback to process the sensor data from the subscribed topic."""
         self.sensor_signal = signal.data
-        # print("List No.", self.counter)
-        # print(', '.join(map(str, self.sensor_signal)), flush=True)
         self.counter += 1
-        # return self.sensor_signal
 
     def send_positions(self, positions):
         """Send multiple service requests for different robot positions."""
@@ -189,96 +301,64 @@ class JointPosition(Node):
         self.my_service_client.call_async(clear_request)
 
     def make_initial_sensor_points(self):
-        # *************** Below is 11*10 = 110 points *************** #
+        # """ 11*10 matrix with row wise distribution"""
+        # R = 0.0906 / 2  # Radius
+        # # Adjust y-coordinates to have 11 steps, evenly spaced between -0.045 and 0.045
+        # # y = np.linspace(-0.045, 0.045, 11)  # Generates 11 points directly
+        # y = np.linspace(-0.045, 0.045, 11)  # Generates 11 points directly
+        # y = np.repeat(y, 10)  # Now, repeat these 11 y-coordinates 10 times each
+        #
+        # # Generate angles. Since we need 10 points around the part of the circle, adjust the range accordingly
+        # # angle = np.linspace(20, 160, 10)  # Generates 10 points
+        # angle = np.linspace(50, 190, 10)  # Generates 10 points
+        #
+        # # Calculate x and z coordinates based on the generated angles
+        # x = R * np.cos(np.deg2rad(angle))
+        # x = np.tile(x, 11)  # Tile x-coordinates to match the new distribution of y
+        # z = R * np.sin(np.deg2rad(angle))
+        # z = np.tile(z, 11)  # Tile and invert z-coordinates
+        #
+        # # Stack x, y, and z to form the adjusted 3D point cloud
+        # self.initial_sensor_points = np.column_stack((-x, -y, z))
+        # print(f"Initial Sensor Points: ", self.initial_sensor_points, flush=True)
+        #
+        # return self.initial_sensor_points
 
-        R = 0.0906 / 2  # Radius, assuming this is consistent with Skin_Thread logic
+        """ 10*10 matrix with col wise distribution """
+        R = 0.0906 / 2  # Radius
 
-        # Sensor positions
-        y = [-0.045 + j * 0.01 for j in range(10) for _ in range(11)]
+        # Adjust y-coordinates to have 10 steps, evenly spaced between -0.045 and 0.045
+        y = np.linspace(-0.045, 0.045, 10)  # Generates 10 points directly
+        # Generate angles for a 10-point circular layout, adjusting the range
+        angle = np.linspace(40, 140, 10)  # Adjusting to ensure a semicircle or your specific arc
 
-        # Assuming the same angular logic as in Skin_Thread
-        angle = [1 * np.pi * 7 / 6 - j * np.pi * 7 / 66 - np.pi / 6 for j in range(10)]
+        # Preallocate arrays for x and z coordinates
+        x = np.empty(0)
+        z = np.empty(0)
 
-        x = [R * np.cos(ang) for ang in angle for _ in range(11)]
-        z = [R * np.sin(ang) for ang in angle for _ in range(11)]
+        # Generate x and z coordinates for each angle, repeating for the entire column (y-coordinates)
+        for ang in angle:
+            x = np.append(x, np.full(shape=(10,), fill_value=R * np.cos(np.deg2rad(ang))))
+            z = np.append(z, np.full(shape=(10,), fill_value=R * np.sin(np.deg2rad(ang))))
 
-        self.initial_sensor_points = np.array([x, y, z]).T
+        # Repeat y-coordinates for each angle to match the repeated x and z coordinates
+        y = np.tile(y, 10)  # Tile y-coordinates to match the layout
+
+        # Stack x, y, and z to form the adjusted 3D point cloud, ensuring column-wise distribution
+        self.initial_sensor_points = np.column_stack((-x, -y, z))
+        print("Initial Sensor Points:", self.initial_sensor_points)
+        print("Initial Sensor Points Shape:", self.initial_sensor_points.shape)
 
         return self.initial_sensor_points
 
-    def calculate_repulsive_force(self, forward_kinematic_class):
-
-        self.Frep = np.zeros((6, 3))  # Create a matrix of zeros
-        sensor_info = self.sensor_signal  # Accessing the sensor_signal attribute
-        link5_transform = forward_kinematic_class.T05
-        self.delta = np.zeros(3)  # Assuming delta is a 3D vector
-
-        for i in range(110):
-            if abs(sensor_info[i] - 1000) < 0.0001:
-                local_point = self.initial_sensor_points[i] # dim: 3x1
-                print(f"local_point: ", local_point, flush=True)
-                local_translate = np.eye(4) # dim: 4x4
-                local_translate[:3, 3] = local_point # dim: 3x1
-                local_normal = np.array([local_point[0], 0, local_point[2]]) # dim: 3x1
-
-                if np.linalg.norm(local_normal) > 0:  # To avoid division by zero
-                    local_normal /= np.linalg.norm(local_normal)
-                local_normal = forward_kinematic_class.normalize(local_normal) # dim: 3x1
-                local_normal = np.array(local_normal)  # Convert local_normal to a NumPy array
-
-                local_normal *= sensor_info[i] * 0.01 # dim: 3x1
-                local_offset = np.eye(4) # dim: 4x4
-                local_offset[:3, 3] = local_normal # dim: 3x1 # local_offset = distance from sensor to surface
-
-                mapped_point = (link5_transform @ local_translate @ local_offset)[:3, 3] # dim: 3x1
-                surface_point = (link5_transform @ local_translate)[:3, 3] # dim: 3x1
-
-                vec = surface_point - mapped_point
-                self.delta += vec
-
-            # Calculate the repulsive force based on the delta
-        if forward_kinematic_class.norm(self.delta) < 0.0001:
-            pass
-
-        else:
-            self.delta = forward_kinematic_class.normalize(self.delta)
-            dist = 0.01  # this seems to be a fixed small distance value
-            f = eta * (1 / dist - 1 / rho) * (1 / (dist**2)) * np.array(self.delta)
-            self.Frep[4, :] = f  # Assuming that the repulsive force is applied to the 5th row (index 4)
-
-        return self.Frep
-
-    def control_update(self, forward_kinematic_class, joint_position_class, Frep, Fatt):
-        F = Fatt + Frep
-        jac = forward_kinematic_class.jacobian()
-        current_joint_states = joint_position_class.latest_positions
-
-        control = np.zeros(6) # dim: 6x1
-
-        for i in range(5, 6):
-            jac_i = forward_kinematic_class.get_jacobian_by_index(jac, i)
-            v = jac_i.T @ Fatt[i, :].T
-            control += v
-
-        for i in range(6):
-            jac_i = forward_kinematic_class.get_jacobian_by_index(jac, i)
-            v = jac_i.T @ Frep[i, :].T
-            control += v
-
-        if forward_kinematic_class.norm(control) < 0.05 and forward_kinematic_class.diff_norm(current_joint_states, goal_joint_states) > 1.0:
-            # Log local minimum correction
-            for j in range(6):
-                control[j] += (goal_joint_states[j] - current_joint_states[j]) * 0.01
-
-        return control.tolist()
 
 def main(args=None):
     rclpy.init(args=args)
 
     joint_position_class = JointPosition()
     joint_position_class.make_initial_sensor_points()
-    forward_kinematic_class = ForwardKinematic()
-    forward_kinematic_class.transformation_matrix(joint_position_class.location_radians)
+    apf_class = ArtificialPotentialField(joint_position_class)
+    apf_class.transformation_matrix(joint_position_class.goal_positions)
 
     try:
         ros_thread = threading.Thread(target=rclpy.spin, args=(joint_position_class,))
@@ -286,34 +366,35 @@ def main(args=None):
 
         while rclpy.ok():
 
-            time.sleep(0.5)
-            waypoint = joint_position_class.latest_positions
-            forward_kinematic_class.transformation_matrix(waypoint)
+            time.sleep(0.4)
+            waypoint = joint_position_class.current_positions
+            # print(waypoint, flush=True)
+            apf_class.transformation_matrix(waypoint)
 
-            fatt = np.zeros((6, 3))  # Create a matrix of zeros
-            frep = joint_position_class.calculate_repulsive_force(forward_kinematic_class)
+            fatt: np.ndarray = np.zeros((6, 3))
+            frep = apf_class.calculate_repulsive_force()
 
-            if forward_kinematic_class.diff_norm(joint_position_class.latest_positions, goal_joint_states) < 0.01 and forward_kinematic_class.matrix_row_norm(frep) < 0.001:
-                print("Done")
+            if apf_class.diff_norm(joint_position_class.current_positions, goal_positions) < 0.01 and apf_class.matrix_row_norm(frep) < 0.001:
+                # print("Done")
                 continue
 
             qdot = []
 
-            if forward_kinematic_class.diff_norm(joint_position_class.latest_positions, goal_joint_states) > 0.01 and forward_kinematic_class.matrix_row_norm(frep) < 0.001:
+            if apf_class.diff_norm(joint_position_class.current_positions, goal_positions) > 0.01 and apf_class.matrix_row_norm(frep) < 0.001:
                 # print("Entered 11111111", flush=True)
 
                 for i in range(6):
-                    diff = joint_position_class.latest_positions[i] - goal_joint_states[i]
+                    diff = joint_position_class.current_positions[i] - goal_positions[i]
                     f = 0
                     if diff < d:
-                        f = -zeta * diff # dim: 1x1
+                        f = -zeta * diff  # dim: 1x1
                     else:
                         f = -zeta * d
                     qdot.append(f)
 
-                if forward_kinematic_class.norm(qdot) > 0.02:
+                if apf_class.norm(qdot) > 0.02:
                     # print("Entered 22222222", flush=True)
-                    qdot = forward_kinematic_class.normalize(qdot, 0.02)
+                    qdot = apf_class.normalize(qdot, 0.02)
 
                 # Update waypoint
                 for j in range(len(qdot)):
@@ -322,8 +403,8 @@ def main(args=None):
                 joint_position_class.send_positions(waypoint)
 
             else:
-                qdot = joint_position_class.control_update(forward_kinematic_class, joint_position_class, frep, fatt)
-                qdot = forward_kinematic_class.normalize(qdot, 0.30)
+                qdot = apf_class.control_update(frep, fatt)
+                qdot = apf_class.normalize(qdot, 0.30)
 
                 # Update waypoint
                 for j in range(len(qdot)):
@@ -331,9 +412,8 @@ def main(args=None):
 
                 joint_position_class.send_positions(waypoint)
 
-            if forward_kinematic_class.norm(qdot) < 0.00001:
+            if apf_class.norm(qdot) < 0.00001:
                 continue  # Continue the loop or perform another action
-
 
     except KeyboardInterrupt:
         pass
@@ -343,5 +423,7 @@ def main(args=None):
         rclpy.shutdown()
         ros_thread.join()  # Wait for the ros_thread to finish
 
+
 if __name__ == '__main__':
     main()
+
