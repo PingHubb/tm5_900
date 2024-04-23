@@ -24,12 +24,14 @@ setup(
             'ui_sensor_demo = lan_control.ui_sensor_demo:main',
             'ui_sensor_test = lan_control.ui_sensor_test:main',
             'testing = lan_control.testing:main',
+            'testing_polyscope = lan_control.testing_polyscope:main',
             'algorithm_demo = lan_control.algorithm_demo:main',
             'pygame_signal = lan_control.pygame_signal:main',
             'keyboard_control = lan_control.keyboard_control:main',
             'sensor_control = lan_control.sensor_control:main',
             'sensor_control_simulation = lan_control.sensor_control_simulation:main',
             'del = lan_control.del:main',
+
 
         ],
     },

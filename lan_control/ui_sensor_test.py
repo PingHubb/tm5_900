@@ -5,6 +5,7 @@ import csv
 import rclpy
 import threading
 import numpy as np
+from math import sin, cos
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 from lan_control import sensor_serial_api
@@ -256,7 +257,7 @@ class MyGame(arcade.Window):
         #     row_major_matrix[row][col] = value
         # flattened_data = [item for sublist in row_major_matrix for item in sublist]
 
-        self.ros_publisher.publish_data(jj_test)
+        self.ros_publisher.publish_data(jj_text_100)
 
         # matrix_flattened_data = np.array(flattened_data).reshape(11, 10)
         # matrix_jj_test = np.array(jj_test).reshape(11, 10)
