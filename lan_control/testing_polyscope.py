@@ -10,7 +10,7 @@ import numpy as np
 import math
 import threading
 import time
-from math import cos, sin
+from math import cos, sin, radians
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, String
 from tm_msgs.srv import SetEvent, SetPositions
 from sensor_msgs.msg import JointState
@@ -77,9 +77,7 @@ class ArtificialPotentialField:
         self.T04 = self.T03 @ self.T34
         self.T05 = self.T04 @ self.T45
         self.T06 = self.T05 @ self.T56  # dim = 4x4
-
         self.J = self.jacobian()
-        # print(f"Jacobian: ", self.J, flush=True)
 
     def jacobian(self):
         # Initialize a 6x6 Jacobian matrix with zeros
@@ -102,7 +100,6 @@ class ArtificialPotentialField:
             # Compute the linear velocity component for the Jacobian
             # It's calculated as the cross product of the z-axis direction vector and the vector from the joint to the end-effector
             linear_velocity_component = np.cross(z_axis, end_effector_pos - joint_pos)
-            # print(f"linear_velocity_component: ", linear_velocity_component, flush=True)
 
             # The angular velocity component for the Jacobian is directly the z-axis direction vector for revolute joints
             angular_velocity_component = z_axis
@@ -364,8 +361,6 @@ class JointPosition(Node):
 
         # Stack x, y, and z to form the adjusted 3D point cloud, ensuring column-wise distribution
         self.initial_sensor_points = np.column_stack((-x, -y, z))
-        # print("Initial Sensor Points:", self.initial_sensor_points)
-        # print("Initial Sensor Points Shape:", self.initial_sensor_points.shape)
 
         return self.initial_sensor_points
 
@@ -419,52 +414,230 @@ class UI(Node):
         self.meshes_skin = []
         self.names_skin = []
         self.pc_touchless = []
-        self.pt_touchless = []
-        self.update_positions = self.goal_positions
+        self.proximity = []
         self.sensor_signal = None
+        self.update_positions = self.goal_positions
         self.counter1 = 0
         self.counter2 = 0
         self.colors = np.zeros((1, 3))
         self.mesh = None
+        self.elbow_mesh = None
+        self.arm_mesh = None
+        self.previous_sensor_data = None
+        self.original_positions = None
 
-        self.init_polyscope()
+        self.init_polyscope()  # Initialization
 
     def init_polyscope(self):
         ps.init()
-        self.sensor_initial_points()
+        self.end_effector_sensor_initial_points()
+        self.elbow_sensor_initial_points()
+        self.arm_initial_points()
         self.load_models()
-        ps.set_user_callback(self.run)
+        ps.set_user_callback(self.update_ui)
         ps.set_max_fps(-1)
         ps.set_up_dir("z_up")
         ps.set_program_name("ROBOT SKIN")
         ps.show()  # This will block this process and show the UI
 
-    def run(self):
-        self.update_ui()
+    def load_models(self):
+        folder_path = '/home/ping2/ros2_ws/src/robot_control/robot_control/resources/robot'
+        obj_files = sorted(glob.glob(os.path.join(folder_path, '*.obj')))
+        for obj_file in obj_files:
+            file_name = os.path.splitext(os.path.basename(obj_file))[0]
+            print("Robot Arm: ", file_name)
+            mesh = om.read_trimesh(obj_file, face_color=True)
+            colors = mesh.face_colors()
+            vertices = mesh.points()
+            faces = mesh.face_vertex_indices()
+            model = ps.register_surface_mesh(file_name, vertices, faces)
+            model.add_color_quantity("material", colors[:, :3], defined_on='faces', enabled=True)
+            self.models.append(model)
+
+        skin_folder_path = '/home/ping2/ros2_ws/src/robot_control/robot_control/resources/skin'
+        skin_files = sorted(glob.glob(os.path.join(skin_folder_path, '*.obj')))
+        for skin_file in skin_files:
+            file_name = os.path.splitext(os.path.basename(skin_file))[0]
+            if file_name == 'knitting_mesh_raw':
+                continue
+            print("Robot Skin: ", file_name)
+            mesh = om.read_trimesh(skin_file)
+            vertices = mesh.points()
+            faces = mesh.face_vertex_indices()
+            model = ps.register_surface_mesh(file_name, vertices, faces, color=[1, 0, 0])
+            self.skins.append(model)
+            self.meshes_skin.append(mesh)
+            self.names_skin.append(file_name)
+
+        self.models[5].set_transform(self.T01)
+        self.models[0].set_transform(self.T01 @ self.T12)
+        self.models[1].set_transform(self.T01 @ self.T12 @ self.T23)
+        self.models[3].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34)
+        self.models[4].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
+        self.models[6].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56)
+        self.models[7].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56)
+        self.skins[0].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_0)
+        self.skins[1].set_transform(self.T01 @ self.T12 @ self.T_skin_1)
+        self.skins[2].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_2)
+        self.skins[3].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_0)
+
+        self.pc_touchless[0].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
+        # self.pc_touchless[1].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
+        self.pc_touchless[2].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
+        self.pc_touchless[3].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_0)
+        self.pc_touchless[4].set_transform(self.T01 @ self.T12 @ self.T_skin_1)
+
+        # self.TCP.set_transform(self.T01 @ self.T12 @ self.T23)
+
+    def end_effector_sensor_initial_points(self):
+        """ Parameters for the initial position of the sensor"""
+        R = 0.0906 / 2
+        y = np.linspace(-0.0405, 0.0405, 10)
+        angle = np.linspace(26, 133, 10)
+        x = R * np.cos(np.deg2rad(angle))
+        z = R * np.sin(np.deg2rad(angle))
+        points = []
+        for i in range(10):  # For each column (each x and z)
+            for j in range(10):  # For each row in that column (each y)
+                # Append the current point, with -x to match your coordinate system
+                points.append((-x[i], -y[j], z[i]))
+        points = np.array(points)
+        self.proximity.append(points)
+
+        """ Extract the vertices and faces from the .obj file and transform the vertices to the new position"""
+        vertices = []
+        faces = []
+        with open('/home/ping2/ros2_ws/src/lan_control/lan_control/resources/sensor_1.obj', 'r') as file:
+            for line in file:
+                parts = line.split()
+                if line.startswith('v '):
+                    # Add vertices
+                    vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                elif line.startswith('f '):
+                    # Add faces, adjusting from 1-based to 0-based index
+                    faces.append([int(idx.split('/')[0]) - 1 for idx in parts[1:]])
+        vertices = np.array(vertices)
+        faces = np.array(faces)
+
+        print("END EFFECTOR -- Length of Vertices: ", len(vertices), "Length of Faces: ", len(faces), flush=True)
+
+        """ Colour for sensors """
+        # colors = np.array([0.678, 0.847, 0.902] * len(faces)).reshape(len(faces), 3)  # dim: 11x11
+
+        """ Create the point cloud and the transformed sensor mesh"""
+        self.mesh = ps.register_surface_mesh("End Effector Sensor Mesh", vertices, faces, smooth_shade=True)
+        # self.mesh.add_color_quantity("face_colors", colors, defined_on='faces', enabled=True)
+
+        end_effector_signal = ps.register_point_cloud("end_effector_signal", points, radius=0.0018, color=[0, 0, 0])
+        end_effector_sensor_vertex = ps.register_point_cloud("end_effector_sensor_vertex", vertices, radius=0.002, color=[1, 0, 0])
+        end_effector_signal.update_point_positions(points)
+        end_effector_sensor_vertex.update_point_positions(vertices)
+        self.mesh.update_vertex_positions(vertices)
+        self.pc_touchless.append(end_effector_signal)
+        self.pc_touchless.append(end_effector_sensor_vertex)
+        self.pc_touchless.append(self.mesh)
+        # self.TCP = ps.register_point_cloud("TCP", np.array([[0, 0, 0]]), radius=0.01, point_render_mode='sphere', color=[0, 0, 1])
+
+        self.original_positions = np.array(self.proximity[0])
+
+    def elbow_sensor_initial_points(self):
+        """ Extract the vertices and faces from the .obj file and transform the vertices to the new position"""
+        vertices = []
+        colours = []
+        faces = []
+        with open('/home/ping2/ros2_ws/src/lan_control/lan_control/resources/joint_1_tri.obj', 'r') as file:
+            for line in file:
+                parts = line.split()
+                if line.startswith('v '):
+                    # Add vertices
+                    vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                    # colours.append([float(parts[4]), float(parts[5]), float(parts[6])])
+                elif line.startswith('f '):
+                    # Add faces, adjusting from 1-based to 0-based index
+                    faces.append([int(idx.split('/')[0]) - 1 for idx in parts[1:]])
+        vertices = np.array(vertices)
+        # colours = np.array(colours)
+        faces = np.array(faces)
+
+        print("ELBOW -- Length of Vertices: ", len(vertices), "Length of Faces: ", len(faces), flush=True)
+
+        """ Create the point cloud and the transformed sensor mesh"""
+        elbow_vertices_pc = ps.register_point_cloud("elbow_vertices_pc", vertices, radius=0.001)
+
+        self.elbow_mesh = ps.register_surface_mesh("Elbow Sensor Mesh", vertices, faces, smooth_shade=True)
+        self.elbow_mesh.update_vertex_positions(vertices)
+        self.pc_touchless.append(self.elbow_mesh)
+
+        # self.pc_touchless.append(elbow_vertices_pc)
+
+    def arm_initial_points(self):
+        vertices = []
+        colours = []
+        faces = []
+        with open('/home/ping2/ros2_ws/src/lan_control/lan_control/resources/link_1_tri.obj', 'r') as file:
+            for line in file:
+                parts = line.split()
+                if line.startswith('v '):
+                    # Add vertices
+                    vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                    # colours.append([float(parts[4]), float(parts[5]), float(parts[6])])
+                elif line.startswith('f '):
+                    # Add faces, adjusting from 1-based to 0-based index
+                    faces.append([int(idx.split('/')[0]) - 1 for idx in parts[1:]])
+        vertices = np.array(vertices)
+        # colours = np.array(colours)
+        faces = np.array(faces)
+
+        print("LINK_1 -- Length of Vertices: ", len(vertices), "Length of Faces: ", len(faces), flush=True)
+
+        self.arm_mesh = ps.register_surface_mesh("arm Sensor Mesh", vertices, faces, smooth_shade=True)
+        self.arm_mesh.update_vertex_positions(vertices)
+        self.pc_touchless.append(self.arm_mesh)
+
+        # arm_vertices_pc = ps.register_point_cloud("arm_vertices_pc", vertices, radius=0.001)
+        # self.pc_touchless.append(arm_vertices_pc)
 
     def update_ui(self):
         """Periodically called method to refresh the UI based on the shared data."""
         with self.lock:
             positions = np.copy(self.shared_data[100:106])
             sensor_data = np.copy(self.shared_data[:100])
-
-        self.update_models(positions, sensor_data)
-
-    def update_models(self, positions, sensor_data):
-        """Update models based on the positions and sensor data."""
-        self.update_positions = positions
-        self.update_transformations(self.update_positions)
         self.update_mesh_colors(sensor_data)
+        self.update_transformations(positions)
+        self.update_point_positions(sensor_data)
 
     def update_mesh_colors(self, sensor_data):
-        """Update mesh colors based on sensor data."""
+        """Update mesh colors based on sensor data, with colors normalized between 0 and 1 for Polyscope."""
         if self.mesh:
             num_faces = len(sensor_data)
-            new_colors = np.zeros((num_faces, 3), dtype=int)
-            for i in range(num_faces):
-                intensity = sensor_data[i]
-                new_colors[i] = [255, 255 - intensity, 255 - intensity]
-            self.mesh.add_color_quantity("face_colors", new_colors, defined_on='faces', enabled=True)
+            if not hasattr(self, 'previous_sensor_data') or not np.array_equal(self.previous_sensor_data, sensor_data):
+                # Calculate colors only if there is a change in sensor data
+                # Normalize color intensity from 0 to 1
+                red_channel = np.ones(num_faces, dtype=float)  # Full intensity for red
+                green_blue_intensity = 1 - sensor_data / 255.0  # Normalize and invert sensor data for green and blue channels
+
+                # Stack arrays to form RGB colors
+                new_colors = np.vstack((red_channel, green_blue_intensity, green_blue_intensity)).T
+
+                # Update the mesh with new colors
+                self.mesh.add_color_quantity("face_colors", new_colors, defined_on='faces', enabled=True)
+
+                # Cache the current sensor data for change detection in future updates
+                self.previous_sensor_data = sensor_data.copy()
+
+    def update_point_positions(self, sensor_data):
+        # Normalize sensor data from 0 to 255 to a range of 0 to 0.05 meters (5 cm)
+        z_displacements = 0.05 * (1 - sensor_data / 255.0)  # Linear mapping: 0 -> +5cm, 255 -> original position  # dim: 11x11
+
+        for i in range (len(sensor_data)):
+            if sensor_data[i] == 0:
+                z_displacements[i] = -0.02
+        # Create new positions array from original, modify only the z-coordinate
+        new_positions = np.copy(self.original_positions)
+        new_positions[:, 2] += z_displacements  # Update z-coordinates based on calculated displacements
+
+        # Update the point cloud positions with the new calculated positions
+        self.pc_touchless[0].update_point_positions(new_positions)
 
     def update_transformations(self, update_positions):
         self.T01 = np.array([[cos(update_positions[0]), -sin(update_positions[0]), 0, 0],
@@ -502,99 +675,14 @@ class UI(Node):
         self.skins[0].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_0)
         self.skins[1].set_transform(self.T01 @ self.T12 @ self.T_skin_1)
         self.skins[2].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_2)
-        # self.pc_touchless[0].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
-        # self.pc_touchless[1].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
-        self.pc_touchless[2].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
+        self.skins[3].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_0)
+        self.pc_touchless[0].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)  # sensor1 point_cloud signal
+        # self.pc_touchless[1].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)  # sensor1 mesh vertex
+        self.pc_touchless[2].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)  # sensor1 mesh
+        self.pc_touchless[3].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_0)  # sensor2 point_cloud
+        self.pc_touchless[4].set_transform(self.T01 @ self.T12 @ self.T_skin_1)  # arm mesh
 
-
-    def load_models(self):
-        folder_path = '/home/ping2/ros2_ws/src/robot_control/robot_control/resources/robot'
-        obj_files = sorted(glob.glob(os.path.join(folder_path, '*.obj')))
-        for obj_file in obj_files:
-            file_name = os.path.splitext(os.path.basename(obj_file))[0]
-            print("Robot Arm: ", file_name)
-            mesh = om.read_trimesh(obj_file, face_color=True)
-            colors = mesh.face_colors()
-            vertices = mesh.points()
-            faces = mesh.face_vertex_indices()
-            model = ps.register_surface_mesh(file_name, vertices, faces)
-            model.add_color_quantity("material", colors[:, :3], defined_on='faces', enabled=True)
-            self.models.append(model)
-
-        skin_folder_path = '/home/ping2/ros2_ws/src/robot_control/robot_control/resources/skin'
-        skin_files = sorted(glob.glob(os.path.join(skin_folder_path, '*.obj')))
-        for skin_file in skin_files:
-            file_name = os.path.splitext(os.path.basename(skin_file))[0]
-            print("Robot Skin: ", file_name)
-            mesh = om.read_trimesh(skin_file)
-            vertices = mesh.points()
-            faces = mesh.face_vertex_indices()
-            model = ps.register_surface_mesh(file_name, vertices, faces, color=[1, 0, 0])
-            self.skins.append(model)
-            self.meshes_skin.append(mesh)
-            self.names_skin.append(file_name)
-
-        self.models[5].set_transform(self.T01)
-        self.models[0].set_transform(self.T01 @ self.T12)
-        self.models[1].set_transform(self.T01 @ self.T12 @ self.T23)
-        self.models[3].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34)
-        self.models[4].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
-        self.models[6].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56)
-        self.models[7].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56)
-        self.skins[0].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_0)
-        self.skins[1].set_transform(self.T01 @ self.T12 @ self.T_skin_1)
-        self.skins[2].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T_skin_2)
-        # self.pc_touchless[0].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
-        # self.pc_touchless[1].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
-        self.pc_touchless[2].set_transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
-
-    def sensor_initial_points(self):
-        """ Parameters for the initial position of the sensor"""
-        R = 0.0906 / 2
-        y = np.linspace(-0.045, 0.045, 11)
-        angle = np.linspace(20, 140, 11)
-        x = R * np.cos(np.deg2rad(angle))
-        z = R * np.sin(np.deg2rad(angle))
-        points = []
-        for i in range(11):  # For each column (each x and z)
-            for j in range(11):  # For each row in that column (each y)
-                # Append the current point, with -x to match your coordinate system
-                points.append((-x[i], -y[j], z[i]))
-        points = np.array(points)
-        self.pt_touchless.append(points)
-        # print("Points: ", points, flush=True)
-
-        """ Extract the vertices and faces from the .obj file and transform the vertices to the new position"""
-        vertices = []
-        faces = []
-        with open('/home/ping2/ros2_ws/src/lan_control/lan_control/sensor.obj', 'r') as file:
-            for line in file:
-                parts = line.split()
-                if line.startswith('v '):
-                    # Add vertices
-                    vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
-                elif line.startswith('f '):
-                    # Add faces, adjusting from 1-based to 0-based index
-                    faces.append([int(idx.split('/')[0]) - 1 for idx in parts[1:]])
-        vertices = np.array(vertices)
-        faces = np.array(faces)
-
-        """ Colour for sensors """
-        # colors = np.array([0.678, 0.847, 0.902] * len(faces)).reshape(len(faces), 3)  # dim: 11x11
-
-        """ Create the point cloud and the transformed sensor mesh"""
-        self.mesh = ps.register_surface_mesh("Transformed Sensor Mesh", vertices, faces, smooth_shade=True)
-        # self.mesh.add_color_quantity("face_colors", colors, defined_on='faces', enabled=True)
-
-        pc_cloud = ps.register_point_cloud("sensor_1", points, radius=0.001, color=[0, 0, 0])
-        pc_cloud_2 = ps.register_point_cloud("Transformed Sensor", vertices, radius=0.002, color=[1, 0, 0])
-        pc_cloud.update_point_positions(points)
-        pc_cloud_2.update_point_positions(vertices)
-        self.mesh.update_vertex_positions(vertices)
-        self.pc_touchless.append(pc_cloud)
-        self.pc_touchless.append(pc_cloud_2)
-        self.pc_touchless.append(self.mesh)
-        self.TCP = ps.register_point_cloud("TCP", np.array([[0, 0, 0]]), radius=0.01, point_render_mode='sphere', color=[0, 0, 1])
+        # self.TCP.set_transform(self.T01 @ self.T12 @ self.T23)
 
 
 def run_ros_node(shared_data, lock):

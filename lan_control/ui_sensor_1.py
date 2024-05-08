@@ -5,14 +5,14 @@ import csv
 import rclpy
 import threading
 import numpy as np
-from math import sin, cos
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
-from lan_control import sensor_serial_api
+from lan_control.OLD import sensor_serial_api_old
 
 # Serial Communication Setup
 serial_port = '/dev/ttyACM0'
 baud_rate = 9600
+
 
 # Constants for the UI
 SCREEN_WIDTH = 1200  # 1100
@@ -25,8 +25,8 @@ NEON_COLOR = (58, 255, 217)  # A neon-like color
 HOVER_COLOR = (255, 235, 59)  # Color when hovered
 
 number_of_data = 50
-# threshold_offset = 4
-threshold_offset = 12
+threshold_offset = 10
+# threshold_offset = 12   #  < --------- this is stable
 
 """ For Demo """
 remove_last_how_many_value = -10  # Remove the last 10 values from the heatmap data
@@ -259,6 +259,8 @@ class MyGame(arcade.Window):
 
         self.ros_publisher.publish_data(jj_text_100)
 
+        print("Time taken: ", time.time() - self.time_count)
+
         # matrix_flattened_data = np.array(flattened_data).reshape(11, 10)
         # matrix_jj_test = np.array(jj_test).reshape(11, 10)
         # print("Matrix flattened data: ", matrix_flattened_data)
@@ -273,7 +275,7 @@ class MyGame(arcade.Window):
             print("Recording stopped.")
 
     def record_to_csv(self):
-        filename = "heatmap_data.csv"
+        filename = "OLD/heatmap_data.csv"
         with open(filename, 'a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow(self.heatmap_data)
@@ -296,6 +298,9 @@ class MyGame(arcade.Window):
 
     def on_update(self, delta_time):
         # If automation is active, continuously call commander.read_raw
+
+        self.time_count = time.time()
+
         if self.automation_active:
             self.counter += 1
             self.perform_read_raw()
@@ -607,8 +612,8 @@ class MyGame(arcade.Window):
         if self.smoothed_curve_data[(row, col)] and self.initial_threshold_calculated:
 
             # Draw the threshold lines
-            self.draw_threshold_line(self.threshold_max[(row, col)], arcade.color.GREEN, y_min, y_max, y_scale, graph_top, graph_height, graph_left, graph_width)
-            self.draw_threshold_line(self.threshold_min[(row, col)], arcade.color.RED, y_min, y_max, y_scale, graph_top, graph_height, graph_left, graph_width)
+            self.draw_threshold_line(self.threshold_max[(row, col)], arcade.color.BROWN, y_min, y_max, y_scale, graph_top, graph_height, graph_left, graph_width)
+            self.draw_threshold_line(self.threshold_min[(row, col)], arcade.color.BROWN, y_min, y_max, y_scale, graph_top, graph_height, graph_left, graph_width)
 
         # Draw original and smoothed curves
         self.draw_curve(self.processed_data[(row, col)], arcade.color.BLUE, y_min, y_max, y_scale, graph_left, graph_top,
@@ -628,7 +633,7 @@ class MyGame(arcade.Window):
 
 def main():
     rclpy.init()
-    commander = sensor_serial_api.ArduinoCommander(serial_port, baud_rate)
+    commander = sensor_serial_api_old.ArduinoCommander(serial_port, baud_rate)
     ros_publisher = SensorDataPublisher()
     game = MyGame(SCREEN_WIDTH, SCREEN_HEIGHT, "Touchless Sensor UI", commander, ros_publisher)
 

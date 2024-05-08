@@ -20,18 +20,16 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'ui_sensor_ros2 = lan_control.ui_sensor_ros2:main',
-            'ui_sensor_demo = lan_control.ui_sensor_demo:main',
-            'ui_sensor_test = lan_control.ui_sensor_test:main',
-            'testing = lan_control.testing:main',
+            'ui_sensor_1 = lan_control.ui_sensor_1:main',
+            'ui_sensor_all = lan_control.ui_sensor_all:main',
             'testing_polyscope = lan_control.testing_polyscope:main',
+            'testing = lan_control.testing:main',
+            'testing_2 = lan_control.testing_2:main',
             'algorithm_demo = lan_control.algorithm_demo:main',
             'pygame_signal = lan_control.pygame_signal:main',
             'keyboard_control = lan_control.keyboard_control:main',
             'sensor_control = lan_control.sensor_control:main',
             'sensor_control_simulation = lan_control.sensor_control_simulation:main',
-            'del = lan_control.del:main',
-
 
         ],
     },
