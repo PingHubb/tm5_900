@@ -6,6 +6,8 @@ import openmesh as om
 import rclpy
 from rclpy.node import Node
 from rclpy import logging
+from scipy.spatial import Delaunay
+from collections import defaultdict
 import numpy as np
 import math
 import threading
@@ -49,17 +51,12 @@ class UI(Node):
         self.lock = lock  # This is the lock for synchronizing access to the shared_data
 
         self.models = []
-        self.skins = []
-        self.meshes_skin = []
-        self.names_skin = []
         self.pc_touchless = []
         self.proximity = []
+        self.grouped_vertices = None
         self.sensor_signal = None
-        self.counter1 = 0
-        self.counter2 = 0
         self.colors = np.zeros((1, 3))
         self.mesh = None
-        self.previous_sensor_data = None
 
         self.init_polyscope()  # Initialization
 
@@ -72,35 +69,6 @@ class UI(Node):
         ps.set_program_name("SKIN")
         ps.show()  # This will block this process and show the UI
 
-    def group_vertices_by_faces(self):
-        faces = []
-        current_face = []
-        current_color = None
-
-        with open('/home/ping2/Downloads/conference/1.obj', 'r') as file:
-            vertex_index = 0
-            for line in file:
-                parts = line.strip().split()
-                if parts[0] == 'v':
-                    x, y, z = map(float, parts[1:4])
-                    r, g, b = map(float, parts[4:7])
-                    normalized_color = (r / 255.0, g / 255.0, b / 255.0)
-
-                    # Start a new face if the color changes
-                    if current_color is None or current_color == normalized_color:
-                        current_face.append(vertex_index)
-                    else:
-                        faces.append(current_face)
-                        current_face = [vertex_index]
-
-                    current_color = normalized_color
-                    vertex_index += 1
-
-            # Add the last face if any vertices remain
-            if current_face:
-                faces.append(current_face)
-
-        return faces, vertex_index
 
     def load_models(self):
         vertices = []
@@ -118,34 +86,48 @@ class UI(Node):
         faces = np.array(faces)
 
         self.mesh = ps.register_surface_mesh("End Effector Sensor Mesh", vertices, faces, smooth_shade=True)
+        # colors = np.ones((len(vertices), 3)) * [1, 0, 0]
+        # print("length of colors: ", len(colors))
+        # colors[:200] = [0, 1, 0]
+        # self.mesh.add_color_quantity("mesh_color", colors, enabled=True)
         self.mesh.update_vertex_positions(vertices)
         self.pc_touchless.append(self.mesh)
 
-        vertices = []
-        colors = []
-        with open('/home/ping2/Downloads/conference/1.obj', 'r') as file:
+        # Path to the text file with group indices
+        obj_file_path = '/home/ping2/Downloads/conference/1.obj'
+        text_file_path = '/home/ping2/Downloads/conference/signal.txt'
+
+        # Load the group indices from the text file
+        group_indices = []
+        with open(text_file_path, 'r') as file:
             for line in file:
-                parts = line.split()
+                group_indices.append(int(line.strip()))
+
+        # Load vertices from the OBJ file
+        vertices = []
+        with open(obj_file_path, 'r') as file:
+            for line in file:
                 if line.startswith('v '):
-                    # Add vertices
+                    parts = line.split()
                     vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
-                    colors.append([float(parts[4]), float(parts[5]), float(parts[6])])  # assuming color values are normalized
-        vertices = np.array(vertices)
-        colors = np.array(colors)
 
-        sensor_pc = ps.register_point_cloud("sensor pc", vertices, radius=0.002)
-        sensor_pc.add_color_quantity("color", colors, enabled=True)
-        sensor_pc.update_point_positions(vertices)
-        self.pc_touchless.append(sensor_pc)
+        self.grouped_vertices = defaultdict(list)
 
-        faces_by_color, total_vertices = self.group_vertices_by_faces()
-        print("len(faces_by_color): ", len(faces_by_color))
+        for index, vertex in enumerate(vertices):
+            group = group_indices[index]
+            if group != -1:  # Exclude vertices with group index -1
+                self.grouped_vertices[group].append(vertex)
+
+        # for group_id, verts in self.grouped_vertices.items():
+        #     verts_np = np.array(verts)
+        #     pc = ps.register_point_cloud(f"Group {group_id}", verts_np, radius=0.002)
+        #     self.models.append(pc)  # Store the reference to the point cloud
 
     def update_ui(self):
         """Periodically called method to refresh the UI based on the shared data."""
         with self.lock:
             sensor_data = np.copy(self.shared_data[:100])
-
+            # self.colour_point_cloud(sensor_data)
 
 def run_ros_node(shared_data, lock):
     rclpy.init()
