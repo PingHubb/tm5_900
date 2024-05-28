@@ -2,11 +2,8 @@ import time
 import arcade
 import os
 import csv
-import rclpy
 import threading
 import numpy as np
-from rclpy.node import Node
-from std_msgs.msg import Float32MultiArray
 from lan_control.OLD import sensor_serial_api_old
 
 # Serial Communication Setup
@@ -32,18 +29,6 @@ threshold_offset = 10
 remove_last_how_many_value = -10  # Remove the last 10 values from the heatmap data
 useless_row = -999  # Row to skip in the heatmap
 useless_col = -999  # Column to skip in the heatmap
-
-class SensorDataPublisher(Node):
-    def __init__(self):
-        super().__init__('sensor_data_publisher')
-        self.publisher = self.create_publisher(Float32MultiArray, 'heatmap_data_topic', 10)
-
-    def publish_data(self, data):
-        msg = Float32MultiArray()
-        msg.data = data
-        self.publisher.publish(msg)
-        # self.get_logger().info(f'Publishing: {data}, {len(data)}')
-
 
 class NeonButton:
     """ Button with a neon-style effect """
@@ -82,11 +67,10 @@ class NeonButton:
 
 
 class MyGame(arcade.Window):
-    def __init__(self, width, height, title, commander, ros_publisher):
+    def __init__(self, width, height, title, commander):
         super().__init__(width, height, title)
         background_path = os.path.expanduser("~/Downloads/nature.jpg")  # Expand the path to the full directory
         self.commander = commander
-        self.ros_publisher = ros_publisher
         self.button_list = []
         self.setup_buttons()
         self.background = arcade.load_texture(background_path)  # Load your background image
@@ -125,6 +109,7 @@ class MyGame(arcade.Window):
         self.initial_processing_done = False
         self.cells_processed_initially = set()
         self.red_intensity_dict = {}  # Initialize the dictionary to store red intensity values
+        self.another_script = None
 
 
     def start_sequence(self):
@@ -244,28 +229,13 @@ class MyGame(arcade.Window):
                               range(self.matrix_width) if
                               (row, col) in self.red_intensity_dict or (row != useless_row and col != useless_col)]
 
-        """ For testing the ROS publisher"""
         jj_test = red_intensity_list.copy()  # dim: 110
         jj_text_100 = jj_test[:100]  # dim: 100
 
-        # # Create an empty matrix with the desired dimensions
-        # row_major_matrix = [[None for _ in range(10)] for _ in range(11)]  # 11 rows and 10 columns
-        # # Populate the matrix in col-major order
-        # for index, value in enumerate(jj_test):
-        #     row = index % 11
-        #     col = index // 11
-        #     row_major_matrix[row][col] = value
-        # flattened_data = [item for sublist in row_major_matrix for item in sublist]
+        self.another_script = jj_text_100
 
-        self.ros_publisher.publish_data(jj_text_100)
+        return jj_text_100
 
-        # print("Time taken: ", time.time() - self.time_count)
-
-        # matrix_flattened_data = np.array(flattened_data).reshape(11, 10)
-        # matrix_jj_test = np.array(jj_test).reshape(11, 10)
-        # print("Matrix flattened data: ", matrix_flattened_data)
-        # print("Matrix jj test: ", matrix_jj_test)
-        """ For testing the ROS publisher"""
 
     def record_heatmap_data(self):
         self.is_recording = not self.is_recording  # Toggle recording state
@@ -632,21 +602,11 @@ class MyGame(arcade.Window):
 
 
 def main():
-    rclpy.init()
     commander = sensor_serial_api_old.ArduinoCommander(serial_port, baud_rate)
-    ros_publisher = SensorDataPublisher()
-    game = MyGame(SCREEN_WIDTH, SCREEN_HEIGHT, "Touchless Sensor UI", commander, ros_publisher)
-
-    # Start ROS2 node in a separate thread
-    spin_thread = threading.Thread(target=rclpy.spin, args=(ros_publisher,), daemon=True)
-    spin_thread.start()
+    game = MyGame(SCREEN_WIDTH, SCREEN_HEIGHT, "Touchless Sensor UI", commander)
 
     # Start the Arcade event loop
     arcade.run()
-
-    # Once the Arcade window is closed, shutdown ROS
-    rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
