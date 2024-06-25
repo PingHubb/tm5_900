@@ -780,7 +780,7 @@ class UI:
     def colour_point_cloud(self, sensor_data):
         a = []
         b = []
-        has_negative = any(value < 0 for value in sensor_data)
+        has_negative = any(value < -100 for value in sensor_data)
 
         for i in range(len(sensor_data)):
             # Check if there are vertices associated with this index
@@ -793,14 +793,14 @@ class UI:
                             if has_negative:
                                 # Set positive values to white if there is a negative value
                                 self.colors[line_number - 1] = [1, 1, 1]
-                                print("please uncommand above line and check the unusual signal")
+                                # print("please uncommand above line and check the unusual signal")
                             else:
                                 a.append(i)
                                 b.append(line_number - 1)
                                 # Positive value for red intensity
                                 normalized_value = sensor_data[i] / 255.0
                                 self.colors[line_number - 1] = [1, 1 - normalized_value, 1 - normalized_value]
-                        elif sensor_data[i] < 0:
+                        elif sensor_data[i] < -100:
                             for j in range(len(b)):
                                 self.colors[b[j]] = [1, 1, 1]
                             # Negative value for blue intensity

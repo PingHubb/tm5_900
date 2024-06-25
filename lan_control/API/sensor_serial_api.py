@@ -12,7 +12,7 @@ class ArduinoCommander:
         for port in self.serial_ports:
             try:
                 ser = serial.Serial(port, baud_rate)
-                print(f"Serial port {port} opened successfully.")
+                print(f"Serial port {port}  opened successfully.")
                 self.serial_connections.append(ser)
             except serial.SerialException:
                 print(f"Serial port {port} not found.")

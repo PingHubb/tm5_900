@@ -6,7 +6,7 @@ import threading
 import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
-from lan_control import sensor_serial_api
+from lan_control.API import sensor_serial_api
 from lan_control.OLD import distance_calculation_mujoco
 
 # Serial Communication Setup

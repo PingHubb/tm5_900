@@ -2,9 +2,9 @@ import time
 import arcade
 import os
 import csv
-import rclpy
 import threading
 import numpy as np
+import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 from lan_control.OLD import sensor_serial_api_old
@@ -236,8 +236,8 @@ class MyGame(arcade.Window):
                 text_color = arcade.color.BLACK
                 # arcade.draw_text(str(self.red_intensity_dict[(row, col)]), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
                 #                  anchor_y="center")
-                # arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
-                #                  anchor_y="center")
+                arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
+                                 anchor_y="center")
 
         # Assuming you want to use 0 as the default red intensity for missing cells
         red_intensity_list = [self.red_intensity_dict.get((row, col), 0) for row in range(self.matrix_height) for col in

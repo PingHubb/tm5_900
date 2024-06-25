@@ -221,8 +221,8 @@ class MyGame(arcade.Window):
                 text_color = arcade.color.BLACK
                 # arcade.draw_text(str(self.red_intensity_dict[(row, col)]), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
                 #                  anchor_y="center")
-                # arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
-                #                  anchor_y="center")
+                arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
+                                 anchor_y="center")
 
         # Assuming you want to use 0 as the default red intensity for missing cells
         red_intensity_list = [self.red_intensity_dict.get((row, col), 0) for row in range(self.matrix_height) for col in
@@ -276,7 +276,8 @@ class MyGame(arcade.Window):
             self.perform_read_raw()
             if self.raw_data and self.calibration_data:
                 # Update the heatmap data
-                self.heatmap_data = self.raw_data[:remove_last_how_many_value]  # <---------- Test for raw data
+                # self.heatmap_data = self.raw_data[:remove_last_how_many_value]  # <---------- Test for raw data
+                self.heatmap_data = self.raw_data # <---------- Test for raw data
                 # print("length of heatmap data: ", len(self.heatmap_data))
 
                 """ For switching col to row major"""

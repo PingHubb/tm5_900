@@ -30,6 +30,10 @@ setup(
             'keyboard_control = lan_control.keyboard_control:main',
             'sensor_control = lan_control.sensor_control:main',
             'sensor_control_simulation = lan_control.sensor_control_simulation:main',
+            'gg_ros = lan_control.gg_ros:main',
+            'Command_Send_Sub = lan_control.Command_Send_Sub:main',
+            'pvt_command = lan_control.pvt_command:main',
+            'QT5 = lan_control.QT5:main',
 
         ],
     },

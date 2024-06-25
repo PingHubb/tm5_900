@@ -6,10 +6,9 @@ import csv
 import rclpy
 import threading
 import numpy as np
-from math import sin, cos
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
-from lan_control import sensor_serial_api
+from lan_control.API import sensor_serial_api
 
 # Serial Communication Setup
 baud_rate = 9600

@@ -689,8 +689,11 @@ def run_ros_node(shared_data, lock):
     rclpy.init()
     np_shared_data = np.frombuffer(shared_data, dtype=float)  # Wrap the RawArray with a NumPy array for easier manipulation
 
+    print("11111")
     joint_position_class = JointPosition(shared_data, lock)  # Adjust the constructor to accept shared data and lock
+    print("22222")
     joint_position_class.make_initial_sensor_points()
+    print("33333")
     apf_class = ArtificialPotentialField(joint_position_class)
     apf_class.transformation_matrix(joint_position_class.goal_positions)
 
