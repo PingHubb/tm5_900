@@ -19,6 +19,7 @@ sensor_read_count = 720
 speed = 0.25  # Remember robot speed is 10%
 sensor_count = 3000
 time_sleep = 1
+#hihi
 
 class UI(QWidget):
     def __init__(self):
