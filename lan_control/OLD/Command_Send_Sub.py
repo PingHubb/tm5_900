@@ -10,6 +10,7 @@ class SendScriptClient(Node):
     def __init__(self):
         super().__init__('send_script_client')
         self.client = self.create_client(SendScript, 'send_script')
+
         self.subscription = self.create_subscription(
             Float32MultiArray,
             'positions_topic',
@@ -46,7 +47,7 @@ class SendScriptClient(Node):
 
     def send_request(self, command):
         request = SendScript.Request()
-        request.id = 'demo'
+        request.id = 'demo'  # <-- not important can self-define
         request.script = command
         self.future = self.client.call_async(request)
 

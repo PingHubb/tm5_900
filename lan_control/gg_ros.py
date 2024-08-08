@@ -51,8 +51,8 @@ goal_positions = [1.0, -4.88533739e-01, 1.57, -1.09090181e+00 + math.pi / 2, 1.5
 # goal_positions = [0.0, 0.0, 1.58, 0.0, 1.58, 0.0]
 
 """ Sensor position parameters"""
-# sensor_angle = np.linspace(0, 180, 10)  # Adjusting to ensure a semicircle or your specific arc
-# y_position = np.linspace(0.015, 0.025, 10)  # Generates 10 points directly
+# sensor_angle = np.linspace(40, 160, 10)  # Adjusting to ensure a semicircle or your specific arc
+# y_position = np.linspace(-0.0405, 0.0405, 10)  # Generates 10 points directly
 # radius = 0.0906 / 2
 sensor_angle = np.linspace(0, 180, 10)
 y_position = np.linspace(-0.08, 0.08, 10)
@@ -244,14 +244,14 @@ class MyGame(arcade.Window):
                 # print("length of heatmap data: ", len(self.heatmap_data))
 
                 """ For switching col to row major"""
-                # Create an empty matrix with the desired dimensions
-                row_major_matrix = [[None for _ in range(10)] for _ in range(11)]
-                # Populate the matrix in row-major order
-                for index, value in enumerate(self.heatmap_data):
-                    row = index % 11
-                    col = index // 11
-                    row_major_matrix[row][col] = value
-                flattened_data = [item for sublist in row_major_matrix for item in sublist]
+                # # Create an empty matrix with the desired dimensions
+                # row_major_matrix = [[None for _ in range(10)] for _ in range(11)]
+                # # Populate the matrix in row-major order
+                # for index, value in enumerate(self.heatmap_data):
+                #     row = index % 11
+                #     col = index // 11
+                #     row_major_matrix[row][col] = value
+                # flattened_data = [item for sublist in row_major_matrix for item in sublist]
                 """ For switching col to row major"""
 
                 # self.ros_publisher.publish_data(flattened_data)
@@ -632,8 +632,53 @@ class MyGame(arcade.Window):
 
                 arcade.draw_rectangle_filled(x, y, square_size, square_size, color)
                 text_color = arcade.color.BLACK
-                # arcade.draw_text(str(self.red_intensity_dict[(row, col)]), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
-                #                  anchor_y="center")
+
+                def update_robot_model(self):
+                    # for idx, i in enumerate(self.robotModel):
+                    #     i.points = self.origin_list[idx]
+
+                    self.T01 = np.array([[cos(self.joints[0]), -sin(self.joints[0]), 0, 0],
+                                         [sin(self.joints[0]), cos(self.joints[0]), 0, 0],
+                                         [0, 0, 1, 0.1452],
+                                         [0, 0, 0, 1]])
+                    self.T12 = np.array([[sin(self.joints[1]), cos(self.joints[1]), 0, 0],
+                                         [0, 0, 1, 0],
+                                         [cos(self.joints[1]), -sin(self.joints[1]), 0, 0],
+                                         [0, 0, 0, 1]])
+                    self.T23 = np.array([[cos(self.joints[2]), -sin(self.joints[2]), 0, 0.429],
+                                         [sin(self.joints[2]), cos(self.joints[2]), 0, 0],
+                                         [0, 0, 1, 0],
+                                         [0, 0, 0, 1]])
+                    self.T34 = np.array([[cos(np.pi / 2 + self.joints[3]), -sin(np.pi / 2 + self.joints[3]), 0, 0.4115],
+                                         [sin(np.pi / 2 + self.joints[3]), cos(np.pi / 2 + self.joints[3]), 0, 0],
+                                         [0, 0, 1, -0.1223],
+                                         [0, 0, 0, 1]])
+                    self.T45 = np.array([[cos(self.joints[4]), -sin(self.joints[4]), 0, 0],
+                                         [0, cos(np.pi / 2), -sin(np.pi / 2), -0.106],
+                                         [sin(self.joints[4]), cos(self.joints[4]), 0, 0],
+                                         [0, 0, 0, 1]])
+                    self.T56 = np.array([[cos(self.joints[5]), -sin(self.joints[5]), 0, 0],
+                                         [0, cos(np.pi / 2), -sin(np.pi / 2), -0.11315],
+                                         [sin(self.joints[5]), cos(self.joints[5]), 0, 0],
+                                         [0, 0, 0, 1]])
+
+                    self.robotModel[1].transform(self.T01 @ self.reT[0])
+                    self.robotModel[2].transform(self.T01 @ self.T12 @ self.reT[1])
+                    self.robotModel[3].transform(self.T01 @ self.T12 @ self.T23 @ self.reT[2])
+                    self.robotModel[4].transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.reT[3])
+                    self.robotModel[5].transform(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.reT[4])
+                    self.robotModel[6].transform(
+                        self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56 @ self.reT[5])
+                    self.robotModel[7].transform(
+                        self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56 @ self.reT[6])
+
+                    self.reT[0] = np.linalg.inv(self.T01)
+                    self.reT[1] = np.linalg.inv(self.T01 @ self.T12)
+                    self.reT[2] = np.linalg.inv(self.T01 @ self.T12 @ self.T23)
+                    self.reT[3] = np.linalg.inv(self.T01 @ self.T12 @ self.T23 @ self.T34)
+                    self.reT[4] = np.linalg.inv(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45)
+                    self.reT[5] = np.linalg.inv(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56)
+                    self.reT[6] = np.linalg.inv(self.T01 @ self.T12 @ self.T23 @ self.T34 @ self.T45 @ self.T56)
                 # arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
                 #                  anchor_y="center")
 

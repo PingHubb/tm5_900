@@ -27,7 +27,7 @@ setup(
             'testing_2 = lan_control.testing_2:main',
             'algorithm_demo = lan_control.algorithm_demo:main',
             'pygame_signal = lan_control.pygame_signal:main',
-            'keyboard_control = lan_control.keyboard_control:main',
+            'keyboard_control = lan_control.OLD.keyboard_control:main',
             'sensor_control = lan_control.sensor_control:main',
             'sensor_control_simulation = lan_control.sensor_control_simulation:main',
             'gg_ros = lan_control.gg_ros:main',

@@ -221,8 +221,8 @@ class MyGame(arcade.Window):
                 text_color = arcade.color.BLACK
                 # arcade.draw_text(str(self.red_intensity_dict[(row, col)]), x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
                 #                  anchor_y="center")
-                arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
-                                 anchor_y="center")
+                # arcade.draw_text(f"{row}, {col}", x, y, text_color, 12, width=square_size, align="center", anchor_x="center",
+                #                  anchor_y="center")
 
         # Assuming you want to use 0 as the default red intensity for missing cells
         red_intensity_list = [self.red_intensity_dict.get((row, col), 0) for row in range(self.matrix_height) for col in
@@ -281,14 +281,14 @@ class MyGame(arcade.Window):
                 # print("length of heatmap data: ", len(self.heatmap_data))
 
                 """ For switching col to row major"""
-                # Create an empty matrix with the desired dimensions
-                row_major_matrix = [[None for _ in range(10)] for _ in range(11)]
-                # Populate the matrix in row-major order
-                for index, value in enumerate(self.heatmap_data):
-                    row = index % 11
-                    col = index // 11
-                    row_major_matrix[row][col] = value
-                flattened_data = [item for sublist in row_major_matrix for item in sublist]
+                # # Create an empty matrix with the desired dimensions
+                # row_major_matrix = [[None for _ in range(10)] for _ in range(11)]
+                # # Populate the matrix in row-major order
+                # for index, value in enumerate(self.heatmap_data):
+                #     row = index % 11
+                #     col = index // 11
+                #     row_major_matrix[row][col] = value
+                # flattened_data = [item for sublist in row_major_matrix for item in sublist]
                 """ For switching col to row major"""
 
                 # self.ros_publisher.publish_data(flattened_data)
